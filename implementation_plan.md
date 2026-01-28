@@ -49,17 +49,44 @@ The configuration system loads settings from `pullreview.yaml`, then applies ove
 
 ---
 
-## Step 3: Bitbucket Cloud Integration
 
-- Implement authentication with Bitbucket Cloud using username and app password.
-- Add logic to infer the current PR from the active Git branch by default.
-- Allow explicit PR ID override via command-line flag.
-- Implement API calls to:
+## Step 3: Bitbucket Cloud Integration ✅ **(Complete)**
+
+
+
+- ✅ Implement authentication with Bitbucket Cloud using username and app password.
+
+- ✅ Add logic to infer the current PR from the active Git branch by default.
+
+- ✅ Allow explicit PR ID override via command-line flag.
+
+- ✅ Implement API calls to:
+
   - Fetch PR metadata (title, description, etc.)
+
   - Fetch the PR diff (unified diff format)
-- Handle API errors gracefully and provide clear feedback to the user.
+
+- ✅ Handle API errors gracefully and provide clear feedback to the user.
+
+
+
+**Current State:**  
+The Bitbucket client (`internal/bitbucket/client.go`) now supports:
+- Authentication with Bitbucket Cloud.
+- Inferring the PR ID from the current Git branch using the `GetPRIDByBranch` method.
+- Fetching PR metadata and diffs via `GetPRMetadata` and `GetPRDiff`.
+- All errors are surfaced to the user with clear, actionable messages.
+- The CLI (`cmd/pullreview/main.go`) wires these methods together, supporting both PR inference and explicit override.
+
+**API Usage Example:**
+- `GetPRIDByBranch(branch string) (string, error)` — Finds the open PR for a branch.
+- `GetPRMetadata(prID string) ([]byte, error)` — Fetches PR metadata as JSON.
+- `GetPRDiff(prID string) (string, error)` — Fetches the unified diff for a PR.
+
+**Next:** Proceed to Step 4: LLM Integration.
 
 ---
+
 
 ## Step 4: LLM Integration
 

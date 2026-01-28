@@ -106,6 +106,22 @@ Do NOT:
 
 ---
 
+## Linting & Formatting
+
+- All code must pass `go vet ./...` with no issues.
+- All code must be formatted with `gofmt -s -w .` before submission.
+- Do **not** use `golint` (deprecated).
+- Code must follow idiomatic Go style and best practices.
+- Pull requests and releases must be linted and formatted as above.
+
+Example commands:
+```sh
+go vet ./...
+gofmt -s -w .
+```
+
+---
+
 ## Dependencies
 - Keep dependencies minimal
 - Prefer Go standard library

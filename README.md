@@ -84,7 +84,6 @@ The following environment variables are supported and override values from the c
 - `--token` Bitbucket API token
 - `--pr` Pull request ID (optional; inferred from branch by default)
 
----
 
 ## Usage
 
@@ -114,9 +113,49 @@ By default, `pullreview` will:
 
 ---
 
+
 ## Customizing the AI Review
 
+
+
 Edit the `prompt.md` file to change the instructions or review style sent to the LLM. This allows you to tailor the AI’s feedback to your team’s needs.
+
+---
+
+## Bitbucket API Usage & PR Inference
+
+The tool uses the Bitbucket Cloud REST API to authenticate, infer the pull request (PR) from your current Git branch, and fetch PR metadata and diffs.
+
+### How PR Inference Works
+
+- By default, `pullreview` detects your current Git branch using `git rev-parse --abbrev-ref HEAD`.
+- It queries Bitbucket for open PRs where the source branch matches your current branch.
+- If a matching PR is found, its ID is used for review. You can override this by specifying `--pr <id>`.
+
+### Bitbucket API Methods Used
+
+- **Authentication:** Validates credentials via the `/user` endpoint.
+- **PR Lookup:** Finds open PRs for a branch using `/repositories/{workspace}/pullrequests?q=source.branch.name="branch"`.
+- **PR Metadata:** Fetches PR details from `/repositories/{workspace}/pullrequests/{id}`.
+- **PR Diff:** Retrieves the unified diff from `/repositories/{workspace}/pullrequests/{id}/diff`.
+
+### Error Handling
+
+- All API errors (authentication, PR lookup, metadata, diff) are reported with clear, actionable messages.
+- If no PR is found for your branch, you’ll be prompted to check your branch or specify a PR ID manually.
+
+### Example Output
+
+```
+✅ Successfully authenticated with Bitbucket (workspace: your_workspace)
+🔎 Inferred branch: feature/my-feature
+🔎 Inferred PR ID: 123
+✅ Fetched PR metadata for PR #123
+✅ Fetched PR diff for PR #123 (length: 2048 bytes)
+```
+
+---
+
 
 ---
 
