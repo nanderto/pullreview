@@ -1,0 +1,41 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Output of the go coverage tool, build artifacts
+*.out
+
+# Dependency directories (remove the comment below if you use Go modules)
+vendor/
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test data and temp files
+*.tmp
+*.temp
+*.cache
+
+# Ignore config/secrets not meant for version control
+# pullreview.yaml contains credentials and should not be committed.
+pullreview.yaml
+Answers.md
+
+# Ignore build output at project root
+pullreview
+pullreview.exe
