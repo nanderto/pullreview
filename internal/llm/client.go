@@ -47,7 +47,7 @@ type ReviewResponse struct {
 // SendReviewPrompt sends the review prompt to the configured LLM provider and returns the response.
 func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 	switch strings.ToLower(c.Provider) {
-	case "openai":
+	case "openai", "openrouter":
 		return c.sendOpenAI(prompt)
 	default:
 		return "", fmt.Errorf("unsupported LLM provider: %s", c.Provider)
