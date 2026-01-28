@@ -36,6 +36,49 @@ go build -o pullreview.exe
 
 ---
 
+## Automated Comment Posting
+
+After the LLM review is generated, `pullreview` will:
+
+- **Parse the LLM response** for both inline and summary comments.
+- **Print the summary and all inline comments** to the terminal for review.
+- **Optionally post comments to Bitbucket** using the `--post` flag.
+  - If `--post` is not set, no comments are posted (preview mode).
+  - If `--post` is set, all inline and summary comments are posted to the PR.
+- All comments are posted in Markdown format.
+
+### LLM Response Format
+
+The tool expects the LLM to output comments using a simple Markdown convention:
+
+- **Inline comments:**  
+  Use code blocks with the `inline` tag and specify the file and line, e.g.:
+  ```
+  ```inline path/to/file.go:42
+  This is an inline comment for file.go at line 42.
+  ```
+  ```
+- **Summary comment:**  
+  Any text outside of inline comment blocks is treated as the summary and posted as a top-level PR comment.
+
+### Example LLM Output
+
+```
+Overall, this PR improves code clarity. See inline comments for details.
+
+```inline foo.go:10
+Consider renaming this variable for clarity.
+```
+
+```inline bar.go:25
+Possible off-by-one error here.
+```
+```
+
+In this example, two inline comments will be posted to the specified files/lines, and the summary will be posted as a top-level comment.
+
+---
+
 ## Configuration
 
 
@@ -87,7 +130,7 @@ The following environment variables are supported and override values from the c
 
 ## Usage
 
-### Basic Usage
+### Basic Usage (Preview Mode)
 
 ```sh
 ./pullreview.exe
@@ -96,12 +139,24 @@ The following environment variables are supported and override values from the c
 By default, `pullreview` will:
 
 - Infer the current PR from the active Git branch.
-
 - Fetch the PR diff from Bitbucket Cloud.
-
 - Load the review prompt from `prompt.md`, inject the PR diff, and send it to the configured LLM (e.g., OpenAI).
-- Print the LLM's review response to the console (future versions will post inline and summary comments to the PR).
+- Print the parsed summary and all inline comments to the terminal.
+- **No comments are posted to Bitbucket unless you use the `--post` flag.**
 
+### Post Comments to Bitbucket
+
+To actually post the summary and inline comments to Bitbucket, use the `--post` flag:
+
+```sh
+./pullreview.exe --post
+```
+
+or
+
+```sh
+./pullreview.exe --post=true
+```
 
 ### Specify a PR ID
 
@@ -118,7 +173,18 @@ By default, `pullreview` will:
 ---
 
 
+---
+
+## The --post Flag
+
+- `--post` (default: false):  
+  If set, posts the parsed summary and inline comments to Bitbucket.  
+  If not set, only prints the comments for review.
+
+---
+
 ## Customizing the AI Review
+
 
 
 

@@ -117,3 +117,59 @@ func TestParseUnifiedDiff_Empty(t *testing.T) {
 		t.Errorf("expected 0 files for empty diff, got %d", len(files))
 	}
 }
+
+func TestParseLLMResponse_InlineAndSummary(t *testing.T) {
+	llmResp := "Overall, this PR looks good. See inline comments for details.\n\n" +
+		"```inline foo.go:10\nConsider renaming this variable for clarity.\n```\n\n" +
+		"```inline bar.go:25\nPossible off-by-one error here.\n```\n"
+	r := &Review{}
+	r.ParseLLMResponse(llmResp)
+
+	if len(r.Comments) != 2 {
+		t.Fatalf("expected 2 inline comments, got %d", len(r.Comments))
+	}
+	if r.Comments[0].FilePath != "foo.go" || r.Comments[0].Line != 10 {
+		t.Errorf("unexpected first inline comment location: %s:%d", r.Comments[0].FilePath, r.Comments[0].Line)
+	}
+	if !strings.Contains(r.Comments[0].Text, "renaming") {
+		t.Errorf("unexpected first inline comment text: %s", r.Comments[0].Text)
+	}
+	if r.Comments[1].FilePath != "bar.go" || r.Comments[1].Line != 25 {
+		t.Errorf("unexpected second inline comment location: %s:%d", r.Comments[1].FilePath, r.Comments[1].Line)
+	}
+	if !strings.Contains(r.Comments[1].Text, "off-by-one") {
+		t.Errorf("unexpected second inline comment text: %s", r.Comments[1].Text)
+	}
+	if !strings.HasPrefix(r.Summary, "Overall, this PR looks good") {
+		t.Errorf("unexpected summary: %s", r.Summary)
+	}
+}
+
+func TestParseLLMResponse_SummaryOnly(t *testing.T) {
+	llmResp := "This PR is well-structured and requires no changes."
+	r := &Review{}
+	r.ParseLLMResponse(llmResp)
+	if len(r.Comments) != 0 {
+		t.Errorf("expected 0 inline comments, got %d", len(r.Comments))
+	}
+	if !strings.Contains(r.Summary, "well-structured") {
+		t.Errorf("unexpected summary: %s", r.Summary)
+	}
+}
+func TestParseLLMResponse_InlineOnly(t *testing.T) {
+	llmResp := "```inline foo.go:5\nFix the bug here.\n```"
+	r := &Review{}
+	r.ParseLLMResponse(llmResp)
+	if len(r.Comments) != 1 {
+		t.Fatalf("expected 1 inline comment, got %d", len(r.Comments))
+	}
+	if r.Comments[0].FilePath != "foo.go" || r.Comments[0].Line != 5 {
+		t.Errorf("unexpected inline comment location: %s:%d", r.Comments[0].FilePath, r.Comments[0].Line)
+	}
+	if !strings.Contains(r.Comments[0].Text, "bug") {
+		t.Errorf("unexpected inline comment text: %s", r.Comments[0].Text)
+	}
+	if r.Summary != "" {
+		t.Errorf("expected empty summary, got: %s", r.Summary)
+	}
+}

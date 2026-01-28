@@ -17,6 +17,55 @@ type Review struct {
 	Files []*DiffFile // Parsed diff files
 }
 
+// ParseLLMResponse parses the LLM response into inline comments and a summary.
+// Expects the LLM response to use a simple Markdown convention:
+// - Inline comments: ```inline path/to/file.go:42\nComment text\n```
+// - Summary: Any text outside inline blocks is treated as the summary.
+func (r *Review) ParseLLMResponse(llmResp string) {
+	r.Comments = nil
+	r.Summary = ""
+	lines := strings.Split(llmResp, "\n")
+	var inInline bool
+	var inlineFile string
+	var inlineLine int
+	var inlineText []string
+	var summaryText []string
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if strings.HasPrefix(line, "```inline ") && strings.HasSuffix(line, "```") == false {
+			// Start of inline block
+			parts := strings.Fields(line)
+			if len(parts) == 2 && strings.Contains(parts[1], ":") {
+				fileLine := strings.SplitN(parts[1], ":", 2)
+				inlineFile = fileLine[0]
+				if l, err := strconv.Atoi(fileLine[1]); err == nil {
+					inlineLine = l
+					inInline = true
+					inlineText = []string{}
+					continue
+				}
+			}
+		}
+		if inInline && line == "```" {
+			// End of inline block
+			r.Comments = append(r.Comments, Comment{
+				FilePath: inlineFile,
+				Line:     inlineLine,
+				Text:     strings.TrimSpace(strings.Join(inlineText, "\n")),
+			})
+			inInline = false
+			continue
+		}
+		if inInline {
+			inlineText = append(inlineText, line)
+		} else {
+			summaryText = append(summaryText, line)
+		}
+	}
+	r.Summary = strings.TrimSpace(strings.Join(summaryText, "\n"))
+}
+
 // Comment represents an inline or file-level comment to be posted on a PR.
 type Comment struct {
 	FilePath string

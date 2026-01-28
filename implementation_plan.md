@@ -131,17 +131,36 @@ The `internal/review` package now includes:
 ---
 
 
-## Step 6: Comment Generation & Posting
+## Step 6: Comment Generation & Posting ✅ **(Complete)**
 
-- Parse the LLM response to extract:
+- ✅ Parse the LLM response to extract:
   - Inline comments (file, line, comment text)
   - File-level comments (if any)
   - Summary review comment
-- Format all comments in Markdown.
-- Implement API calls to post:
+- ✅ Format all comments in Markdown.
+- ✅ Implement API calls to post:
   - Multiple inline comments
   - A summary comment
-- Ensure comments are associated with the correct lines/files in the PR.
+- ✅ Ensure comments are associated with the correct lines/files in the PR.
+- ✅ Add a `--post` flag to control whether comments are posted to Bitbucket or just printed for review.
+- ✅ Change output so the tool prints the parsed summary and inline comments (not the raw LLM response) by default.
+
+**Current State:**  
+- The Bitbucket client (`internal/bitbucket/client.go`) now provides:
+  - `PostInlineComment(prID, filePath, line, text)` for posting inline comments to specific lines/files.
+  - `PostSummaryComment(prID, text)` for posting a summary (top-level) comment.
+- The review logic (`internal/review/review.go`) includes:
+  - `ParseLLMResponse(llmResp string)` to extract inline and summary comments from the LLM output using a simple Markdown convention.
+- The CLI (`cmd/pullreview/main.go`) now:
+  - Parses the LLM response after receiving it.
+  - Prints the parsed summary and all inline comments to the terminal for review.
+  - Only posts comments to Bitbucket if the `--post` flag is set.
+  - Prints a summary of posted comments if posting is enabled.
+
+**How Comments Are Posted and Previewed:**  
+- By default, the tool prints the summary and inline comments for review and does not post to Bitbucket.
+- If the `--post` flag is provided, inline comments are posted using the Bitbucket API to the correct file and line, and the summary review is posted as a top-level PR comment.
+- All comments are formatted in Markdown.
 
 ---
 
@@ -152,6 +171,8 @@ The `internal/review` package now includes:
   - Default (infer PR from branch): `pullreview`
   - Specify PR ID: `pullreview --pr <id>`
   - Override credentials: `pullreview -u <username> -p <app_password>`
+  - **Preview mode (default):** Only print summary and inline comments, do not post to Bitbucket.
+  - **Post mode:** Use `--post` to actually post comments to Bitbucket after review.
 - Print a summary of actions (e.g., number of comments posted, summary text) after execution.
 
 ---
@@ -164,8 +185,19 @@ The `internal/review` package now includes:
   - LLM API integration (mocked)
   - Diff parsing and mapping
   - CLI argument parsing
+  - **LLM response parsing for summary and inline comments**
+  - **Bitbucket comment posting (mocked)**
 - Test end-to-end on sample PRs (small, large, multi-file).
 - Validate on Windows environment.
+
+**Current State:**  
+- Unit tests exist for:
+  - Diff parsing and mapping
+  - LLM response parsing for summary and inline comments
+  - Bitbucket comment posting (mocked HTTP)
+  - Config loading and overrides
+  - LLM client error handling
+- All tests pass, confirming correct behavior for new features and CLI logic.
 
 ---
 

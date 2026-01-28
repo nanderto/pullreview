@@ -1,12 +1,90 @@
 package bitbucket
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 )
+
+// PRComment represents a comment to be posted to a PR.
+type PRComment struct {
+	FilePath string // Relative file path for inline comments
+	Line     int    // Line number for inline comments (new file)
+	Text     string // Markdown comment text
+}
+
+// PostInlineComment posts an inline comment to a specific line in a PR.
+func (c *Client) PostInlineComment(prID, filePath string, line int, text string) error {
+	if prID == "" || filePath == "" || line <= 0 || text == "" {
+		return errors.New("missing required fields for inline comment")
+	}
+	url := fmt.Sprintf("%s/repositories/%s/%s/pullrequests/%s/comments", c.BaseURL, c.Workspace, c.RepoSlug, prID)
+	body := map[string]interface{}{
+		"content": map[string]string{
+			"raw": text,
+		},
+		"inline": map[string]interface{}{
+			"path": filePath,
+			"to":   line,
+		},
+	}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("failed to marshal inline comment: %w", err)
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create inline comment request: %w", err)
+	}
+	req.SetBasicAuth(c.Email, c.APIToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to post inline comment: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to post inline comment: status %d, response: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// PostSummaryComment posts a summary (top-level) comment to a PR.
+func (c *Client) PostSummaryComment(prID, text string) error {
+	if prID == "" || text == "" {
+		return errors.New("missing required fields for summary comment")
+	}
+	url := fmt.Sprintf("%s/repositories/%s/%s/pullrequests/%s/comments", c.BaseURL, c.Workspace, c.RepoSlug, prID)
+	body := map[string]interface{}{
+		"content": map[string]string{
+			"raw": text,
+		},
+	}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("failed to marshal summary comment: %w", err)
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create summary comment request: %w", err)
+	}
+	req.SetBasicAuth(c.Email, c.APIToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to post summary comment: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to post summary comment: status %d, response: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
 
 // Client provides methods for interacting with the Bitbucket Cloud API.
 type Client struct {
