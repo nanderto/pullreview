@@ -108,13 +108,28 @@ The LLM integration is implemented using OpenAI's Chat API. The tool loads the p
 ---
 
 
-## Step 5: Diff Parsing & Review Preparation
 
-- Parse the Bitbucket PR diff to extract file and line information.
-- Prepare the data structure for mapping LLM responses to Bitbucket's comment API.
-- Ensure the diff is presented to the LLM in a clear, context-rich format.
+## Step 5: Diff Parsing & Review Preparation ✅ **(Complete)**
+
+
+
+- ✅ Parse the Bitbucket PR diff to extract file and line information.
+
+- ✅ Prepare the data structure for mapping LLM responses to Bitbucket's comment API.
+
+- ✅ Ensure the diff is presented to the LLM in a clear, context-rich format.
+
+
+
+**Current State:**  
+The `internal/review` package now includes:
+- A robust unified diff parser (`ParseUnifiedDiff`) that extracts file changes, hunks, and line mappings.
+- Data structures (`DiffFile`, `DiffHunk`, `HunkLine`, `LineType`) to represent parsed diff information.
+- Methods on `Review` to parse the diff and format it for LLM input with clear file/hunk context.
+- Unit tests for diff parsing and formatting, covering single and multiple files, additions, deletions, and edge cases.
 
 ---
+
 
 ## Step 6: Comment Generation & Posting
 

@@ -126,7 +126,21 @@ Edit the `prompt.md` file to change the instructions or review style sent to the
 
 ---
 
-## LLM Review Context: Diff vs. Full File
+## Diff Parsing & Review Mapping
+
+The `pullreview` tool parses the Bitbucket PR diff using a robust unified diff parser. This enables:
+
+- Extraction of file changes, hunks, and line mappings from the diff.
+- Mapping of LLM responses (inline comments, summary) to the correct files and lines in Bitbucket.
+- Presentation of the diff to the LLM in a clear, context-rich format, including file names and hunk headers.
+
+### How Diff Parsing Works
+
+- The tool parses the unified diff into structured data: files, hunks, and line mappings.
+- Each hunk includes context lines, additions, and deletions, with accurate line numbers for both the old and new files.
+- This structure allows precise association of LLM-generated comments with the correct lines in the PR.
+
+### LLM Review Context: Diff vs. Full File
 
 By default, the LLM only sees the unified diff for each pull request. This means:
 
@@ -139,6 +153,26 @@ A future version may allow sending the full file (before or after changes) to th
 
 ---
 
+
+
+## Example: Diff Formatting for LLM
+
+The tool formats the parsed diff for LLM input with clear file and hunk context. For example:
+
+```
+File: foo.go
+  @@ -1,6 +1,7 @@
+      package main
+    - func hello() {
+    -     println("Hello, world!")
+    + func hello(name string) {
+    +     println("Hello,", name)
+      }
+```
+
+This helps the LLM understand exactly what changed and where, improving the quality and relevance of its review comments.
+
+---
 
 ## LLM Integration (OpenAI & OpenRouter Example)
 
