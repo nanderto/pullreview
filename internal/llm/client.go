@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 )
+
+var verboseMode bool
 
 // Client provides methods for interacting with a Large Language Model (LLM) API.
 
@@ -66,9 +69,15 @@ func (c *Client) sendOpenAI(prompt string) (string, error) {
 	model := c.Model
 
 	if model == "" {
-
 		model = "gpt-3.5-turbo"
+	}
 
+	// Print LLM config before making the API call, but only if verbose is enabled
+	if verboseMode {
+		fmt.Fprintf(os.Stderr, "[llm] Provider: %s\n", c.Provider)
+		fmt.Fprintf(os.Stderr, "[llm] API Key: %s\n", c.APIKey)
+		fmt.Fprintf(os.Stderr, "[llm] Endpoint: %s\n", c.Endpoint)
+		fmt.Fprintf(os.Stderr, "[llm] Model: %s\n", model)
 	}
 
 	// Prepare request body for OpenAI/OpenRouter Chat API
@@ -103,7 +112,26 @@ func (c *Client) sendOpenAI(prompt string) (string, error) {
 		return "", fmt.Errorf("failed to read OpenAI response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("OpenAI API error: %s", string(respBody))
+		// Try to parse OpenRouter-style error details
+		var errorResponse struct {
+			Error struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+				Param   string `json:"param"`
+				Code    string `json:"code"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(respBody, &errorResponse)
+		if verboseMode {
+			fmt.Fprintf(os.Stderr, "[llm] Error response from LLM:\n")
+			fmt.Fprintf(os.Stderr, "[llm]   Message: %s\n", errorResponse.Error.Message)
+			fmt.Fprintf(os.Stderr, "[llm]   Type: %s\n", errorResponse.Error.Type)
+			fmt.Fprintf(os.Stderr, "[llm]   Code: %s\n", errorResponse.Error.Code)
+		}
+		return "", fmt.Errorf("OpenRouter API error: %s (type: %s, code: %s)",
+			errorResponse.Error.Message,
+			errorResponse.Error.Type,
+			errorResponse.Error.Code)
 	}
 
 	// Parse OpenAI response
@@ -121,4 +149,9 @@ func (c *Client) sendOpenAI(prompt string) (string, error) {
 		return "", errors.New("no choices returned from OpenAI API")
 	}
 	return openAIResp.Choices[0].Message.Content, nil
+}
+
+// SetVerbose enables or disables verbose mode for LLM debug output.
+func SetVerbose(v bool) {
+	verboseMode = v
 }
