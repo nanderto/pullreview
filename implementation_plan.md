@@ -88,14 +88,25 @@ The Bitbucket client (`internal/bitbucket/client.go`) now supports:
 ---
 
 
-## Step 4: LLM Integration
 
-- Implement support for at least one LLM provider (e.g., OpenAI, Claude, Copilot via GitHub APIs).
-- Load the review prompt from `prompt.md` and inject the PR diff and any relevant context.
-- Send the prompt to the LLM API and receive the response.
-- Make LLM provider, endpoint, and API key configurable via `pullreview.yaml`.
+## Step 4: LLM Integration ✅ **(Complete)**
+
+
+
+- ✅ Implement support for at least one LLM provider (OpenAI, via Chat API).
+- ✅ Load the review prompt from `prompt.md` and inject the PR diff and any relevant context.
+
+- ✅ Send the prompt to the LLM API and receive the response.
+
+- ✅ Make LLM provider, endpoint, and API key configurable via `pullreview.yaml`.
+
+
+
+**Current State:**  
+The LLM integration is implemented using OpenAI's Chat API. The tool loads the prompt template from `prompt.md`, injects the PR diff, and sends the prompt to the LLM. The response is printed to the console (future steps will parse and post comments). The LLM provider, endpoint, and API key are fully configurable via `pullreview.yaml`, environment variables, or CLI flags. The logic is implemented in `internal/llm/client.go` and wired up in `cmd/pullreview/main.go`.
 
 ---
+
 
 ## Step 5: Diff Parsing & Review Preparation
 
@@ -143,16 +154,20 @@ The Bitbucket client (`internal/bitbucket/client.go`) now supports:
 
 ---
 
-## Step 9: Linting, Documentation, and Polish
+## Step 9: Linting, Documentation, and Polish ✅ **(Complete)**
 
-- Set up linting (e.g., `golint`, `go vet`) and ensure code passes all checks.
-- Update `README.md` with:
+- ✅ Set up linting (`go vet`) and ensure code passes all checks.
+- ✅ Format all code with `gofmt`.
+- ✅ Update `README.md` with:
   - Build instructions
   - Configuration guide
   - Usage examples
   - Customizing the prompt
-- Document all public functions and modules.
-- Ensure `pullreview_requirements.md` and `implementation_plan.md` are up to date with the current state of the project.
+- ✅ Document all public functions and modules.
+- ✅ Ensure `pullreview_requirements.md` and `implementation_plan.md` are up to date with the current state of the project.
+
+**Current State:**  
+All code is linted (`go vet`), formatted (`gofmt`), and passes all tests. Documentation is current and reflects the latest features, including LLM model selection and OpenRouter support.
 
 ---
 

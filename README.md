@@ -94,10 +94,14 @@ The following environment variables are supported and override values from the c
 ```
 
 By default, `pullreview` will:
+
 - Infer the current PR from the active Git branch.
+
 - Fetch the PR diff from Bitbucket Cloud.
-- Send the diff to the configured LLM using the prompt in `prompt.md`.
-- Post inline and summary comments to the PR.
+
+- Load the review prompt from `prompt.md`, inject the PR diff, and send it to the configured LLM (e.g., OpenAI).
+- Print the LLM's review response to the console (future versions will post inline and summary comments to the PR).
+
 
 ### Specify a PR ID
 
@@ -119,6 +123,88 @@ By default, `pullreview` will:
 
 
 Edit the `prompt.md` file to change the instructions or review style sent to the LLM. This allows you to tailor the AI’s feedback to your team’s needs.
+
+---
+
+## LLM Review Context: Diff vs. Full File
+
+By default, the LLM only sees the unified diff for each pull request. This means:
+
+- The LLM receives only the lines that were added, removed, or modified, plus a small amount of surrounding context (the “hunks” in the diff).
+- The LLM does **not** see the entire file before or after the change, nor unchanged code outside the diff hunks.
+- This approach is efficient and focuses the review on what changed, but may miss issues that require broader file or project context.
+
+**Future Option:**  
+A future version may allow sending the full file (before or after changes) to the LLM for deeper context. This will be configurable.
+
+---
+
+
+## LLM Integration (OpenAI & OpenRouter Example)
+
+
+
+The tool supports sending review prompts to an LLM provider using the OpenAI-compatible API format. This includes OpenAI, OpenRouter, and other compatible services.
+
+- The prompt template is loaded from `prompt.md`.
+
+- The PR diff is injected into the prompt at the `(DIFF_CONTENT_HERE)` placeholder.
+
+- The prompt is sent to the LLM API (e.g., OpenAI, OpenRouter).
+- The LLM's response is printed to the console.
+
+- You can select the model via the `model` field in your config.
+
+
+**Example OpenAI Configuration:**
+
+
+
+```yaml
+
+llm:
+
+  provider: openai
+
+  api_key: your_openai_api_key
+
+  endpoint: https://api.openai.com/v1/chat/completions
+
+  model: gpt-3.5-turbo
+```
+
+
+
+**Example OpenRouter Configuration:**
+
+```yaml
+llm:
+  provider: openai
+  api_key: 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
+  endpoint: https://openrouter.ai/api/v1/chat/completions
+  model: arcee-ai/trinity-large-preview:free
+```
+You can use any model supported by OpenRouter by specifying its name in the `model` field.
+
+**How it works:**
+
+
+1. The tool loads your prompt template and replaces `(DIFF_CONTENT_HERE)` with the actual PR diff.
+2. It sends the prompt to the OpenAI Chat API using your API key and endpoint.
+3. The LLM's review (in Markdown) is printed to the terminal.
+
+**Sample output:**
+
+```
+🤖 Sending review prompt to LLM...
+✅ Received LLM review response:
+------ BEGIN LLM REVIEW ------
+[AI-generated review content here]
+------- END LLM REVIEW -------
+```
+
+Support for additional LLM providers can be added by extending `internal/llm/client.go`.
+
 
 ---
 

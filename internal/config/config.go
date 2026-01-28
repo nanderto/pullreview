@@ -32,6 +32,8 @@ type Config struct {
 
 		Endpoint string `yaml:"endpoint"` // LLM API endpoint
 
+		Model string `yaml:"model"` // LLM model name (e.g., arcee-ai/trinity-large-preview:free)
+
 	} `yaml:"llm"`
 
 	PromptFile string `yaml:"prompt_file"` // Path to the prompt template file
