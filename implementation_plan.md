@@ -164,37 +164,32 @@ The `internal/review` package now includes:
 
 ---
 
-## Step 7: Improved Inline Comment Extraction from LLM Output
+## Step 7: Improved Inline Comment Extraction from LLM Output ✅ **(Complete)**
 
-**Proposal: Natural Language Inline Comment Extraction**
+**Status:**  
+The LLM response parser now supports both the original code block format and natural language inline comment extraction. Inline comments can be written in a human-friendly style (e.g., `internal/bitbucket/client.go Lines 26-27: ...`) and will be correctly parsed and posted as inline comments. This makes the tool more robust and user-friendly, and reduces the burden on prompt engineering.
 
-Currently, `pullreview` requires the LLM to output inline comments in a strict code block format. This is unnatural for most LLMs and reviewers, and leads to missed inline comments if the LLM outputs them in a more human style (e.g., “file.go Lines 10-12: ...”).
-
-**Enhancement Plan:**
-- Enhance the LLM response parser to recognize inline comments written in natural language, such as:
-  ```
-  internal/bitbucket/client.go
-  Lines 26-27: The NewClient function signature has been updated...
-  ```
-- Use regular expressions to extract:
-  - File path (e.g., `internal/bitbucket/client.go`)
-  - Line number(s) (e.g., `Lines 26-27`)
-  - Comment text
-- Map these references to the parsed diff, and post them as inline comments using the Bitbucket API.
-- Continue to support the code block format for backward compatibility, but prioritize natural language extraction.
+**What was done:**
+- Enhanced `ParseLLMResponse` in `internal/review/review.go` to:
+  - Recognize and extract inline comments from natural language output (e.g., `file.go Lines 10-12: ...` or `file.go Line 10: ...`).
+  - Continue to support the legacy code block format for backward compatibility.
+  - Use regular expressions to extract file paths, line numbers (single or range), and comment text.
+  - Map these references to the parsed diff and post them as inline comments using the Bitbucket API.
+- Added comprehensive unit tests for:
+  - Single-line and multi-line natural language inline comments.
+  - Mixed summary and inline comments.
+  - Backward compatibility with code block format.
+- All tests pass, confirming correct extraction and mapping of both code block and natural language inline comments.
+- Updated documentation and prompt examples to reflect the new flexibility.
 
 **Benefits:**
 - More robust and user-friendly: works with LLMs that output reviews in a natural style.
 - Reduces prompt engineering burden.
 - Makes the tool more adaptable to different LLMs and review styles.
 
-**Implementation Steps:**
-1. Update the parser in `internal/review` to extract file/line references and comments from natural language output.
-2. Add unit tests for various LLM output styles.
-3. Update documentation and prompt examples to reflect the new flexibility.
-
 **Goal:**  
-Make inline comment extraction robust to both natural language and code block formats, improving usability and LLM compatibility.
+Inline comment extraction is now robust to both natural language and code block formats, improving usability and LLM compatibility.
+
 
 ---
 

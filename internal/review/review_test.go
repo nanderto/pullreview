@@ -173,3 +173,55 @@ func TestParseLLMResponse_InlineOnly(t *testing.T) {
 		t.Errorf("expected empty summary, got: %s", r.Summary)
 	}
 }
+
+func TestParseLLMResponse_NaturalLanguageInlineSingleLine(t *testing.T) {
+	llmResp := "internal/bitbucket/client.go Line 42: This line needs better error handling."
+	r := &Review{}
+	r.ParseLLMResponse(llmResp)
+	if len(r.Comments) != 1 {
+		t.Fatalf("expected 1 inline comment, got %d", len(r.Comments))
+	}
+	c := r.Comments[0]
+	if c.FilePath != "internal/bitbucket/client.go" || c.Line != 42 {
+		t.Errorf("unexpected inline comment location: %s:%d", c.FilePath, c.Line)
+	}
+	if !strings.Contains(c.Text, "better error handling") {
+		t.Errorf("unexpected inline comment text: %s", c.Text)
+	}
+}
+
+func TestParseLLMResponse_NaturalLanguageInlineMultiLine(t *testing.T) {
+	llmResp := "internal/llm/client.go Lines 10-12: Consider refactoring this block for clarity."
+	r := &Review{}
+	r.ParseLLMResponse(llmResp)
+	if len(r.Comments) != 3 {
+		t.Fatalf("expected 3 inline comments, got %d", len(r.Comments))
+	}
+	for i, c := range r.Comments {
+		if c.FilePath != "internal/llm/client.go" || c.Line != 10+i {
+			t.Errorf("unexpected inline comment location: %s:%d", c.FilePath, c.Line)
+		}
+		if !strings.Contains(c.Text, "refactoring this block") {
+			t.Errorf("unexpected inline comment text: %s", c.Text)
+		}
+	}
+}
+
+func TestParseLLMResponse_NaturalLanguageAndSummary(t *testing.T) {
+	llmResp := "General feedback: Good work overall.\n\ninternal/utils/utils.go Line 7: Use a more descriptive variable name.\n\nThank you!"
+	r := &Review{}
+	r.ParseLLMResponse(llmResp)
+	if len(r.Comments) != 1 {
+		t.Fatalf("expected 1 inline comment, got %d", len(r.Comments))
+	}
+	c := r.Comments[0]
+	if c.FilePath != "internal/utils/utils.go" || c.Line != 7 {
+		t.Errorf("unexpected inline comment location: %s:%d", c.FilePath, c.Line)
+	}
+	if !strings.Contains(c.Text, "descriptive variable name") {
+		t.Errorf("unexpected inline comment text: %s", c.Text)
+	}
+	if !strings.Contains(r.Summary, "General feedback") || !strings.Contains(r.Summary, "Thank you!") {
+		t.Errorf("unexpected summary: %s", r.Summary)
+	}
+}

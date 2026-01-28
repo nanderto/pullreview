@@ -47,24 +47,68 @@ After the LLM review is generated, `pullreview` will:
   - If `--post` is set, all inline and summary comments are posted to the PR.
 - All comments are posted in Markdown format.
 
+
 ### LLM Response Format
 
-The tool expects the LLM to output comments using a simple Markdown convention:
 
-- **Inline comments:**  
+
+The tool supports two formats for inline comments in the LLM output:
+
+- **1. Code block format (legacy, still supported):**  
   Use code blocks with the `inline` tag and specify the file and line, e.g.:
-  ```
-  ```inline path/to/file.go:42
-  This is an inline comment for file.go at line 42.
-  ```
-  ```
-- **Summary comment:**  
-  Any text outside of inline comment blocks is treated as the summary and posted as a top-level PR comment.
 
-### Example LLM Output
+  ```
+
+  ```inline path/to/file.go:42
+
+  This is an inline comment for file.go at line 42.
+
+  ```
+
+  ```
+
+
+- **2. Natural language format (recommended):**  
+  Write inline comments in a human-friendly way, referencing the file and line(s) at the start of the line, e.g.:
+  ```
+  path/to/file.go Line 42: This is an inline comment for file.go at line 42.
+  path/to/other.go Lines 10-12: These lines could use more descriptive variable names.
+  ```
+  - Both `Line N:` and `Lines N-M:` are supported.
+  - The tool will post one inline comment per referenced line.
+
+- **Summary comment:**  
+
+  Any text outside of inline comment blocks or natural language inline comment lines is treated as the summary and posted as a top-level PR comment.
+
+
+
+#### Example LLM Output (Both Formats Supported)
+
+
 
 ```
+
 Overall, this PR improves code clarity. See inline comments for details.
+
+
+
+foo.go Line 10: Consider renaming this variable for clarity.
+
+
+bar.go Lines 25-26: Possible off-by-one error here.
+
+
+Thank you for your work!
+```
+
+
+Or, using the code block format:
+
+```
+
+Overall, this PR improves code clarity. See inline comments for details.
+
 
 ```inline foo.go:10
 Consider renaming this variable for clarity.
@@ -75,9 +119,12 @@ Possible off-by-one error here.
 ```
 ```
 
-In this example, two inline comments will be posted to the specified files/lines, and the summary will be posted as a top-level comment.
+In both examples, inline comments will be posted to the specified files/lines, and the summary will be posted as a top-level comment.
+
+
 
 ---
+
 
 ## Configuration
 

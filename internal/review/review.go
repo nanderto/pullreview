@@ -18,12 +18,16 @@ type Review struct {
 }
 
 // ParseLLMResponse parses the LLM response into inline comments and a summary.
-// Expects the LLM response to use a simple Markdown convention:
-// - Inline comments: ```inline path/to/file.go:42\nComment text\n```
-// - Summary: Any text outside inline blocks is treated as the summary.
+// Supports both code block and natural language inline comment formats.
+//   - Code block: ```inline path/to/file.go:42\nComment text\n```
+//   - Natural language: path/to/file.go Lines 10-12: Comment text
+//     or path/to/file.go Line 10: Comment text
+//
+// Any text outside inline blocks or natural language matches is treated as the summary.
 func (r *Review) ParseLLMResponse(llmResp string) {
 	r.Comments = nil
 	r.Summary = ""
+
 	lines := strings.Split(llmResp, "\n")
 	var inInline bool
 	var inlineFile string
@@ -31,10 +35,14 @@ func (r *Review) ParseLLMResponse(llmResp string) {
 	var inlineText []string
 	var summaryText []string
 
+	// Regex for natural language inline comments
+	// Example: internal/bitbucket/client.go Lines 26-27: The NewClient function signature has been updated...
+	nlInlineRegex := regexp.MustCompile(`^([^\s:]+)\s+Lines?\s+(\d+)(?:-(\d+))?:\s*(.+)$`)
+
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
-		if strings.HasPrefix(line, "```inline ") && strings.HasSuffix(line, "```") == false {
-			// Start of inline block
+		// Code block inline comment start
+		if strings.HasPrefix(line, "```inline ") && !strings.HasSuffix(line, "```") {
 			parts := strings.Fields(line)
 			if len(parts) == 2 && strings.Contains(parts[1], ":") {
 				fileLine := strings.SplitN(parts[1], ":", 2)
@@ -47,8 +55,8 @@ func (r *Review) ParseLLMResponse(llmResp string) {
 				}
 			}
 		}
+		// Code block inline comment end
 		if inInline && line == "```" {
-			// End of inline block
 			r.Comments = append(r.Comments, Comment{
 				FilePath: inlineFile,
 				Line:     inlineLine,
@@ -59,9 +67,32 @@ func (r *Review) ParseLLMResponse(llmResp string) {
 		}
 		if inInline {
 			inlineText = append(inlineText, line)
-		} else {
-			summaryText = append(summaryText, line)
+			continue
 		}
+
+		// Natural language inline comment
+		if matches := nlInlineRegex.FindStringSubmatch(line); matches != nil {
+			filePath := matches[1]
+			startLine, _ := strconv.Atoi(matches[2])
+			endLine := startLine
+			if matches[3] != "" {
+				if l, err := strconv.Atoi(matches[3]); err == nil {
+					endLine = l
+				}
+			}
+			commentText := matches[4]
+			for ln := startLine; ln <= endLine; ln++ {
+				r.Comments = append(r.Comments, Comment{
+					FilePath: filePath,
+					Line:     ln,
+					Text:     strings.TrimSpace(commentText),
+				})
+			}
+			continue
+		}
+
+		// Not an inline comment, treat as summary
+		summaryText = append(summaryText, line)
 	}
 	r.Summary = strings.TrimSpace(strings.Join(summaryText, "\n"))
 }
