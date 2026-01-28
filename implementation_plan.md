@@ -164,29 +164,50 @@ The `internal/review` package now includes:
 
 ---
 
-## Step 7: Command-Line Interface & User Experience
+## Step 7: Improved Inline Comment Extraction from LLM Output
 
-- Implement a user-friendly CLI with clear help and usage messages.
-- Support the following usage patterns:
-  - Default (infer PR from branch): `pullreview`
-  - Specify PR ID: `pullreview --pr <id>`
-  - Override credentials: `pullreview -u <username> -p <app_password>`
-  - **Preview mode (default):** Only print summary and inline comments, do not post to Bitbucket.
-  - **Post mode:** Use `--post` to actually post comments to Bitbucket after review.
-- Print a summary of actions (e.g., number of comments posted, summary text) after execution.
+**Proposal: Natural Language Inline Comment Extraction**
+
+Currently, `pullreview` requires the LLM to output inline comments in a strict code block format. This is unnatural for most LLMs and reviewers, and leads to missed inline comments if the LLM outputs them in a more human style (e.g., “file.go Lines 10-12: ...”).
+
+**Enhancement Plan:**
+- Enhance the LLM response parser to recognize inline comments written in natural language, such as:
+  ```
+  internal/bitbucket/client.go
+  Lines 26-27: The NewClient function signature has been updated...
+  ```
+- Use regular expressions to extract:
+  - File path (e.g., `internal/bitbucket/client.go`)
+  - Line number(s) (e.g., `Lines 26-27`)
+  - Comment text
+- Map these references to the parsed diff, and post them as inline comments using the Bitbucket API.
+- Continue to support the code block format for backward compatibility, but prioritize natural language extraction.
+
+**Benefits:**
+- More robust and user-friendly: works with LLMs that output reviews in a natural style.
+- Reduces prompt engineering burden.
+- Makes the tool more adaptable to different LLMs and review styles.
+
+**Implementation Steps:**
+1. Update the parser in `internal/review` to extract file/line references and comments from natural language output.
+2. Add unit tests for various LLM output styles.
+3. Update documentation and prompt examples to reflect the new flexibility.
+
+**Goal:**  
+Make inline comment extraction robust to both natural language and code block formats, improving usability and LLM compatibility.
 
 ---
 
 ## Step 8: Testing & Validation
 
-- Write unit tests for:
-  - Config loading and validation
-  - Bitbucket API integration (mocked)
-  - LLM API integration (mocked)
-  - Diff parsing and mapping
-  - CLI argument parsing
-  - **LLM response parsing for summary and inline comments**
-  - **Bitbucket comment posting (mocked)**
+- ✅ Write unit tests for:
+  - ✅ Config loading and validation
+  - ✅ Bitbucket API integration (mocked)
+  - ✅ LLM API integration (mocked)
+  - ✅ Diff parsing and mapping
+  - ✅ CLI argument parsing
+  - ✅ **LLM response parsing for summary and inline comments**
+  - ✅ **Bitbucket comment posting (mocked)**
 - Test end-to-end on sample PRs (small, large, multi-file).
 - Validate on Windows environment.
 
