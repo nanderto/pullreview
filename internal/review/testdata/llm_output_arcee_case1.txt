@@ -1,4 +1,3 @@
-pullreview/internal/review/testdata/llm_output_arcee_case2.txt
 # EXPECTED
 file: file=internal/bitbucket/client.go comment=This file has grown significantly with new Bitbucket API methods. Consider adding error handling for JSON decoding failures and validating the PR state before returning the ID. Also, the methods could benefit from consistent error message formatting.
 file: file=internal/config/config.go comment=The configuration loading logic has been extended with repo slug inference. Consider adding validation for the inferred repo slug and handling cases where the git remote is not a Bitbucket URL.
