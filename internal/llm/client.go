@@ -123,12 +123,20 @@ func (c *Client) sendOpenAI(prompt string) (string, error) {
 		}
 		_ = json.Unmarshal(respBody, &errorResponse)
 		if verboseMode {
-			fmt.Fprintf(os.Stderr, "[llm] Error response from LLM:\n")
+			fmt.Fprintf(os.Stderr, "==============================================================================================================================\n")
+			fmt.Fprintf(os.Stderr, "[llm] Raw error response from LLM:\n%s\n", string(respBody))
+			fmt.Fprintf(os.Stderr, "==============================================================================================================================\n")
+			fmt.Fprintf(os.Stderr, "[llm] Error response from LLM (parsed):\n")
 			fmt.Fprintf(os.Stderr, "[llm]   Message: %s\n", errorResponse.Error.Message)
 			fmt.Fprintf(os.Stderr, "[llm]   Type: %s\n", errorResponse.Error.Type)
 			fmt.Fprintf(os.Stderr, "[llm]   Code: %s\n", errorResponse.Error.Code)
 		}
-		return "", fmt.Errorf("OpenRouter API error: %s (type: %s, code: %s)",
+		providerName := "OpenRouter"
+		if strings.ToLower(c.Provider) == "openai" {
+			providerName = "OpenAI"
+		}
+		return "", fmt.Errorf("%s API error: %s (type: %s, code: %s)",
+			providerName,
 			errorResponse.Error.Message,
 			errorResponse.Error.Type,
 			errorResponse.Error.Code)
@@ -144,6 +152,14 @@ func (c *Client) sendOpenAI(prompt string) (string, error) {
 	}
 	if err := json.Unmarshal(respBody, &openAIResp); err != nil {
 		return "", fmt.Errorf("failed to parse OpenAI response: %w", err)
+	}
+	if verboseMode {
+		fmt.Fprintf(os.Stderr, "==============================================================================================================================\n")
+		fmt.Fprintf(os.Stderr, "[llm] Raw success response from LLM:\n")
+		fmt.Fprintf(os.Stderr, "==============================================================================================================================\n\n")
+		fmt.Fprintf(os.Stderr, "%s\n", string(respBody))
+		fmt.Fprintf(os.Stderr, "\n===============================================================================================================================\n")
+		fmt.Fprintf(os.Stderr, "===============================================================================================================================\n")
 	}
 	if len(openAIResp.Choices) == 0 {
 		return "", errors.New("no choices returned from OpenAI API")

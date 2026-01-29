@@ -18,90 +18,16 @@ type Review struct {
 }
 
 // ParseLLMResponse parses the LLM response into inline comments and a summary.
-// Supports both code block and natural language inline comment formats.
-//   - Code block: ```inline path/to/file.go:42\nComment text\n```
-//   - Natural language: path/to/file.go Lines 10-12: Comment text
-//     or path/to/file.go Line 10: Comment text
-//
-// Any text outside inline blocks or natural language matches is treated as the summary.
 func (r *Review) ParseLLMResponse(llmResp string) {
-	r.Comments = nil
-	r.Summary = ""
-
-	lines := strings.Split(llmResp, "\n")
-	var inInline bool
-	var inlineFile string
-	var inlineLine int
-	var inlineText []string
-	var summaryText []string
-
-	// Regex for natural language inline comments
-	// Example: internal/bitbucket/client.go Lines 26-27: The NewClient function signature has been updated...
-	nlInlineRegex := regexp.MustCompile(`^([^\s:]+)\s+Lines?\s+(\d+)(?:-(\d+))?:\s*(.+)$`)
-
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
-		// Code block inline comment start
-		if strings.HasPrefix(line, "```inline ") && !strings.HasSuffix(line, "```") {
-			parts := strings.Fields(line)
-			if len(parts) == 2 && strings.Contains(parts[1], ":") {
-				fileLine := strings.SplitN(parts[1], ":", 2)
-				inlineFile = fileLine[0]
-				if l, err := strconv.Atoi(fileLine[1]); err == nil {
-					inlineLine = l
-					inInline = true
-					inlineText = []string{}
-					continue
-				}
-			}
-		}
-		// Code block inline comment end
-		if inInline && line == "```" {
-			r.Comments = append(r.Comments, Comment{
-				FilePath: inlineFile,
-				Line:     inlineLine,
-				Text:     strings.TrimSpace(strings.Join(inlineText, "\n")),
-			})
-			inInline = false
-			continue
-		}
-		if inInline {
-			inlineText = append(inlineText, line)
-			continue
-		}
-
-		// Natural language inline comment
-		if matches := nlInlineRegex.FindStringSubmatch(line); matches != nil {
-			filePath := matches[1]
-			startLine, _ := strconv.Atoi(matches[2])
-			endLine := startLine
-			if matches[3] != "" {
-				if l, err := strconv.Atoi(matches[3]); err == nil {
-					endLine = l
-				}
-			}
-			commentText := matches[4]
-			for ln := startLine; ln <= endLine; ln++ {
-				r.Comments = append(r.Comments, Comment{
-					FilePath: filePath,
-					Line:     ln,
-					Text:     strings.TrimSpace(commentText),
-				})
-			}
-			continue
-		}
-
-		// Not an inline comment, treat as summary
-		summaryText = append(summaryText, line)
-	}
-	r.Summary = strings.TrimSpace(strings.Join(summaryText, "\n"))
+	r.Comments, r.Summary = ParseLLMResponse(llmResp)
 }
 
 // Comment represents an inline or file-level comment to be posted on a PR.
 type Comment struct {
-	FilePath string
-	Line     int
-	Text     string
+	FilePath    string
+	Line        int
+	Text        string
+	IsFileLevel bool
 }
 
 // DiffFile represents a file changed in the diff, with its hunks.
@@ -138,6 +64,50 @@ const (
 	AdditionLine
 	DeletionLine
 )
+
+// MatchCommentsToDiff checks each comment against the parsed diff files and returns two slices:
+// - matched: comments that correspond to a real file and (for inline) line in the diff
+// - unmatched: comments that do not match any file/line in the diff
+//
+// For inline comments, the file must exist and the line must be present as a new line in the diff.
+// For file-level comments, only the file must exist.
+func MatchCommentsToDiff(comments []Comment, files []*DiffFile) (matched []Comment, unmatched []Comment) {
+	fileMap := make(map[string]*DiffFile)
+	for _, f := range files {
+		fileMap[f.NewPath] = f
+	}
+
+	for _, c := range comments {
+		file, ok := fileMap[c.FilePath]
+		if !ok {
+			unmatched = append(unmatched, c)
+			continue
+		}
+		if c.IsFileLevel {
+			matched = append(matched, c)
+			continue
+		}
+		// Inline comment: check if line exists as a new line in the diff
+		found := false
+		for _, h := range file.Hunks {
+			for _, hl := range h.LineMapping {
+				if hl.Type == AdditionLine && hl.NewLine == c.Line {
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		if found {
+			matched = append(matched, c)
+		} else {
+			unmatched = append(unmatched, c)
+		}
+	}
+	return matched, unmatched
+}
 
 // NewReview creates a new Review instance.
 func NewReview(prID, diff string) *Review {
