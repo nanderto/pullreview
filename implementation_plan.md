@@ -229,13 +229,34 @@ Ensure the matching and posting logic is robust and correct.
 - Posting logic is exercised in integration and manual tests.
 - End-to-end validation ensures only valid comments are posted, and unmatched comments are handled gracefully.
 
+
 ---
 
 
+
+## Step 7.5: Append Unmatched Comments as Bullet Points Under the File Summary ✅ **(Complete)**
+
+
+
+**Goal:**  
+When inserting the file summary, any unmatched comments should be added as plain bullet points directly underneath the file summary (with no heading), both in the console output and when posting the summary to Bitbucket.
+
+**What was done:**  
+- The CLI logic was updated so that after matching comments to the diff, any unmatched comments are appended as plain Markdown bullet points directly under the summary, with no heading.
+- This composed summary (original summary + unmatched comments as bullets) is printed in the summary section and posted as the summary comment to Bitbucket.
+- Unmatched comments are formatted as `- [file:line] comment` or `- [file] comment` for file-level comments.
+
+- The previous separate "Unmatched Comments" section was removed from the output, as unmatched comments now appear directly under the summary.
+
+- This ensures all reviewer feedback is visible in one place, improving transparency and usability.
+
+**Status:**  
+✅ Implemented and tested. The summary now always includes unmatched comments as plain bullet points (with no heading) when present.
 
 ---
 
 ## Step 8: Testing & Validation
+
 
 - ✅ Write unit tests for:
   - ✅ Config loading and validation

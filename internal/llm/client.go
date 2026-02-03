@@ -52,6 +52,8 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 	switch strings.ToLower(c.Provider) {
 	case "openai", "openrouter":
 		return c.sendOpenAI(prompt)
+	case "github", "copilot", "github-models", "githubmodels":
+		return c.sendGitHubModels(prompt)
 	default:
 		return "", fmt.Errorf("unsupported LLM provider: %s", c.Provider)
 	}
@@ -163,6 +165,98 @@ func (c *Client) sendOpenAI(prompt string) (string, error) {
 	}
 	if len(openAIResp.Choices) == 0 {
 		return "", errors.New("no choices returned from OpenAI API")
+	}
+	return openAIResp.Choices[0].Message.Content, nil
+}
+
+// sendGitHubModels sends the prompt to GitHub Models and returns the response.
+func (c *Client) sendGitHubModels(prompt string) (string, error) {
+	if c.APIKey == "" {
+		return "", errors.New("missing GitHub Models API token")
+	}
+
+	endpoint := c.Endpoint
+	if endpoint == "" {
+		endpoint = "https://models.github.ai/inference/chat/completions"
+	}
+
+	model := c.Model
+	if model == "" {
+		model = "openai/gpt-4o-mini"
+	}
+
+	if verboseMode {
+		fmt.Fprintf(os.Stderr, "[llm] Provider: %s\n", c.Provider)
+		fmt.Fprintf(os.Stderr, "[llm] API Key: %s\n", c.APIKey)
+		fmt.Fprintf(os.Stderr, "[llm] Endpoint: %s\n", endpoint)
+		fmt.Fprintf(os.Stderr, "[llm] Model: %s\n", model)
+	}
+
+	reqBody := map[string]interface{}{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": prompt},
+		},
+		"temperature": 0.2,
+		"max_tokens":  2048,
+	}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal GitHub Models request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to create GitHub Models request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to contact GitHub Models API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read GitHub Models response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		var errorResponse struct {
+			Message string `json:"message"`
+			Error   struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+				Param   string `json:"param"`
+				Code    string `json:"code"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(respBody, &errorResponse)
+		msg := errorResponse.Message
+		if msg == "" {
+			msg = errorResponse.Error.Message
+		}
+		if msg == "" {
+			msg = strings.TrimSpace(string(respBody))
+		}
+		return "", fmt.Errorf("GitHub Models API error: %s", msg)
+	}
+
+	var openAIResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &openAIResp); err != nil {
+		return "", fmt.Errorf("failed to parse GitHub Models response: %w", err)
+	}
+	if len(openAIResp.Choices) == 0 {
+		return "", errors.New("no choices returned from GitHub Models API")
 	}
 	return openAIResp.Choices[0].Message.Content, nil
 }

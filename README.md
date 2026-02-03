@@ -38,14 +38,24 @@ go build -o pullreview.exe
 
 ## Automated Comment Posting
 
+
 After the LLM review is generated, `pullreview` will:
 
+
+
 - **Parse the LLM response** for both inline and summary comments.
+
 - **Print the summary and all inline comments** to the terminal for review.
+
+- **Append any unmatched comments as bullet points directly under the summary** (see below).
 - **Optionally post comments to Bitbucket** using the `--post` flag.
+
   - If `--post` is not set, no comments are posted (preview mode).
+
   - If `--post` is set, all inline and summary comments are posted to the PR.
+
 - All comments are posted in Markdown format.
+
 
 
 ### LLM Response Format
@@ -77,9 +87,20 @@ The tool supports two formats for inline comments in the LLM output:
   - Both `Line N:` and `Lines N-M:` are supported.
   - The tool will post one inline comment per referenced line.
 
+
 - **Summary comment:**  
 
+
+
   Any text outside of inline comment blocks or natural language inline comment lines is treated as the summary and posted as a top-level PR comment.
+
+
+- **Unmatched comments:**  
+
+  If the LLM generates comments that cannot be matched to a file/line in the PR diff (for example, referencing a file or line that does not exist in the current PR), these comments will be appended as plain bullet points directly under the summary. This applies both to the console output and to the summary comment posted to Bitbucket. Each unmatched comment is shown as a Markdown bullet, e.g.:
+  - `[file.go:42] This is an unmatched comment.`
+  - `[other.go] This is an unmatched file-level comment.`
+
 
 
 
@@ -119,7 +140,12 @@ Possible off-by-one error here.
 ```
 ```
 
+
 In both examples, inline comments will be posted to the specified files/lines, and the summary will be posted as a top-level comment.
+
+
+If there are unmatched comments, they will appear as plain bullet points directly under the summary, both in the console and in the Bitbucket summary comment (with no heading).
+
 
 
 
@@ -291,7 +317,7 @@ This helps the LLM understand exactly what changed and where, improving the qual
 
 
 
-The tool supports sending review prompts to an LLM provider using the OpenAI-compatible API format. This includes OpenAI, OpenRouter, and other compatible services.
+The tool supports sending review prompts to an LLM provider using an OpenAI-compatible API format.
 
 - The prompt template is loaded from `prompt.md`.
 
@@ -333,11 +359,22 @@ llm:
 ```
 You can use any model supported by OpenRouter by specifying its name in the `model` field.
 
+**Example GitHub Models (Copilot) Configuration:**
+
+```yaml
+llm:
+  provider: github
+  api_key: your_github_pat_with_models_scope
+  endpoint: https://models.github.ai/inference/chat/completions
+  model: openai/gpt-4o-mini
+```
+Use a GitHub personal access token (PAT) with the `models` scope for `api_key`. Model names come from the GitHub Models catalog. Note: this provider is available but untested.
+
 **How it works:**
 
 
 1. The tool loads your prompt template and replaces `(DIFF_CONTENT_HERE)` with the actual PR diff.
-2. It sends the prompt to the OpenAI Chat API using your API key and endpoint.
+2. It sends the prompt to the configured LLM API using your API key and endpoint.
 3. The LLM's review (in Markdown) is printed to the terminal.
 
 **Sample output:**
