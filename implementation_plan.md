@@ -161,39 +161,102 @@ The `internal/review` package now includes:
 - By default, the tool prints the summary and inline comments for review and does not post to Bitbucket.
 - If the `--post` flag is provided, inline comments are posted using the Bitbucket API to the correct file and line, and the summary review is posted as a top-level PR comment.
 - All comments are formatted in Markdown.
+ 
+---
+
+## Step 7: Robust LLM Output Parsing and Preparation for Bitbucket Posting ✅ **(Complete)**
+
+**Status:**  
+The LLM response parser now supports the new explicit section format for extracting inline comments, file-level comments, and summary from the LLM output. The parser is fully tested using realistic test files and is robust to various LLM output styles.
+
+**What was done:**
+- Implemented a parser that extracts structured comments and summary from LLM output using explicit section headers.
+- Comprehensive unit tests using realistic test files ensure correct extraction of all comment types and summary.
+- Legacy markdown-style parsing has been removed for clarity and maintainability.
+
+**Goal:**  
+LLM output is now parsed into structured data, ready for further processing and posting to Bitbucket.
 
 ---
 
-## Step 7: Improved Inline Comment Extraction from LLM Output ✅ **(Complete)**
-
-**Status:**  
-The LLM response parser now supports both the original code block format and natural language inline comment extraction. Inline comments can be written in a human-friendly style (e.g., `internal/bitbucket/client.go Lines 26-27: ...`) and will be correctly parsed and posted as inline comments. This makes the tool more robust and user-friendly, and reduces the burden on prompt engineering.
-
-**What was done:**
-- Enhanced `ParseLLMResponse` in `internal/review/review.go` to:
-  - Recognize and extract inline comments from natural language output (e.g., `file.go Lines 10-12: ...` or `file.go Line 10: ...`).
-  - Continue to support the legacy code block format for backward compatibility.
-  - Use regular expressions to extract file paths, line numbers (single or range), and comment text.
-  - Map these references to the parsed diff and post them as inline comments using the Bitbucket API.
-- Added comprehensive unit tests for:
-  - Single-line and multi-line natural language inline comments.
-  - Mixed summary and inline comments.
-  - Backward compatibility with code block format.
-- All tests pass, confirming correct extraction and mapping of both code block and natural language inline comments.
-- Updated documentation and prompt examples to reflect the new flexibility.
-
-**Benefits:**
-- More robust and user-friendly: works with LLMs that output reviews in a natural style.
-- Reduces prompt engineering burden.
-- Makes the tool more adaptable to different LLMs and review styles.
+### Step 7.1: Match Parsed LLM Comments to Parsed Diff/Input ✅ **(Complete & Integrated)**
 
 **Goal:**  
-Inline comment extraction is now robust to both natural language and code block formats, improving usability and LLM compatibility.
+Ensure that each parsed comment from the LLM output corresponds to a real file and line in the PR diff.
 
+**What was done:**
+- Implemented `MatchCommentsToDiff` in `internal/review/review.go` to match each parsed comment (file, line) to the parsed diff structure.
+- Added comprehensive unit tests for valid and invalid inline and file-level comments.
+- **Integrated into the main review flow:** After parsing the LLM response, only matched comments are printed and posted to Bitbucket. Unmatched comments are clearly reported and not posted.
+
+**Additional Notes:**
+- This integration ensures that only actionable, valid comments reach Bitbucket, improving reliability and user experience.
+- Unmatched comments (e.g., referencing files or lines not present in the diff) are shown in a separate section for transparency and debugging.
+
+---
+
+### Step 7.2: Prepare Comments for Bitbucket Posting ✅ **(Complete)**
+
+**Goal:**  
+Format and organize the matched comments for Bitbucket's API.
+
+**What was done:**
+- Only matched comments are converted and posted using the Bitbucket API.
+- Inline and file-level comments are handled appropriately.
+- Summary comments are prepared and posted as top-level PR comments.
+
+---
+
+### Step 7.3: Integrate with Bitbucket Posting Logic ✅ **(Complete)**
+
+**Goal:**  
+Wire up the review flow so that only valid, matched comments are posted to Bitbucket.
+
+**What was done:**
+- The main CLI logic now uses the matching function after parsing the LLM output.
+- Only matched comments are posted to Bitbucket.
+- A summary of posted and unmatched (skipped) comments is printed for user awareness.
+
+---
+
+### Step 7.4: Testing & Validation of Matching and Posting ✅ **(Complete)**
+
+**Goal:**  
+Ensure the matching and posting logic is robust and correct.
+
+**What was done:**
+- Unit tests cover the matching function, including edge cases (missing files, out-of-range lines, etc.).
+- Posting logic is exercised in integration and manual tests.
+- End-to-end validation ensures only valid comments are posted, and unmatched comments are handled gracefully.
+
+
+---
+
+
+
+## Step 7.5: Append Unmatched Comments as Bullet Points Under the File Summary ✅ **(Complete)**
+
+
+
+**Goal:**  
+When inserting the file summary, any unmatched comments should be added as plain bullet points directly underneath the file summary (with no heading), both in the console output and when posting the summary to Bitbucket.
+
+**What was done:**  
+- The CLI logic was updated so that after matching comments to the diff, any unmatched comments are appended as plain Markdown bullet points directly under the summary, with no heading.
+- This composed summary (original summary + unmatched comments as bullets) is printed in the summary section and posted as the summary comment to Bitbucket.
+- Unmatched comments are formatted as `- [file:line] comment` or `- [file] comment` for file-level comments.
+
+- The previous separate "Unmatched Comments" section was removed from the output, as unmatched comments now appear directly under the summary.
+
+- This ensures all reviewer feedback is visible in one place, improving transparency and usability.
+
+**Status:**  
+✅ Implemented and tested. The summary now always includes unmatched comments as plain bullet points (with no heading) when present.
 
 ---
 
 ## Step 8: Testing & Validation
+
 
 - ✅ Write unit tests for:
   - ✅ Config loading and validation

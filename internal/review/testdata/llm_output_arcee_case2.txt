@@ -1,0 +1,93 @@
+# EXPECTED
+file: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts comment=This file has significant performance optimizations and pagination/filtering logic. The addition of ChangeDetectionStrategy.OnPush and debounced change detection is a good improvement. However, the large number of new methods and properties makes the file quite complex and could benefit from better organization or extraction into smaller, focused classes.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=50 comment=The addition of ChangeDetectionStrategy.OnPush is a good performance optimization, but it requires careful management of change detection triggers throughout the component. The new throttling mechanism helps prevent excessive change detection cycles.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=60 comment=The decimal format constants are well-organized and follow a consistent naming pattern. The addition of TR_CULTURE_CODE shows consideration for Turkish locale formatting requirements.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=70 comment=The pagination properties are well-structured with sensible defaults. The pageSizeOptions array provides good flexibility for users to choose their preferred page size.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=80 comment=The filterControl initialization is straightforward and follows Angular best practices. The filteredDataSource and isFiltered properties are well-named and clearly indicate their purpose.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=90 comment=The caching mechanism for form controls is a good optimization to reduce repeated lookups. The _cacheIsValid flag helps ensure the cache is only used when appropriate.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=100 comment=The change detection throttling mechanism is well-implemented with requestAnimationFrame for smoother UI updates. The 50ms delay seems reasonable for most use cases.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=120 comment=The batchChangeDetection method is a good pattern for grouping multiple updates into a single change detection cycle, reducing performance overhead.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=130 comment=The getDisplayedProducts method efficiently handles both filtered and non-filtered states while maintaining proper pagination. The cache invalidation logic is well-placed.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=140 comment=The getGlobalIndexForCurrentItem method correctly handles the mapping between displayed items and their original positions, which is crucial for maintaining form control state.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=150 comment=The applyFilter method handles both simple and comma-separated search terms efficiently. The Turkish locale handling shows good internationalization consideration.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=160 comment=The clearFilter method properly resets all filter-related state and triggers change detection efficiently.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=170 comment=The onPageChange method correctly updates pagination state and triggers change detection. The getCurrentPageInfo method provides useful information for UI display.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=180 comment=The getTotalCount method correctly handles both filtered and non-filtered states for pagination calculations.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=190 comment=The calculateTotalTax and calculateGrandTotal methods are well-implemented and follow the existing pattern in the codebase.
+inline: file=src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts line=200 comment=The deleteRow method properly handles both filtered and non-filtered states when removing items. The batchChangeDetection wrapper ensures efficient updates.
+summary: SUMMARY: This PR adds significant functionality including pagination, filtering, and performance optimizations to the product list component. The code is well-structured with good separation of concerns and follows Angular best practices. The addition of Turkish locale support and comprehensive internationalization updates is commendable. However, the component has become quite large and complex, which could make maintenance challenging. Consider extracting some of the new functionality into separate services or utility classes to improve maintainability. The performance optimizations are well-implemented and should provide noticeable improvements in user experience, especially with large datasets.
+
+***Raw*Seperator********************************************************
+
+******************** SECTION: FILE-LEVEL COMMENTS ********************
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+COMMENT: This file has significant performance optimizations and pagination/filtering logic. The addition of ChangeDetectionStrategy.OnPush and debounced change detection is a good improvement. However, the large number of new methods and properties makes the file quite complex and could benefit from better organization or extraction into smaller, focused classes.
+
+******************** SECTION: INLINE COMMENTS ********************
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 50
+COMMENT: The addition of ChangeDetectionStrategy.OnPush is a good performance optimization, but it requires careful management of change detection triggers throughout the component. The new throttling mechanism helps prevent excessive change detection cycles.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 60
+COMMENT: The decimal format constants are well-organized and follow a consistent naming pattern. The addition of TR_CULTURE_CODE shows consideration for Turkish locale formatting requirements.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 70
+COMMENT: The pagination properties are well-structured with sensible defaults. The pageSizeOptions array provides good flexibility for users to choose their preferred page size.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 80
+COMMENT: The filterControl initialization is straightforward and follows Angular best practices. The filteredDataSource and isFiltered properties are well-named and clearly indicate their purpose.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 90
+COMMENT: The caching mechanism for form controls is a good optimization to reduce repeated lookups. The _cacheIsValid flag helps ensure the cache is only used when appropriate.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 100
+COMMENT: The change detection throttling mechanism is well-implemented with requestAnimationFrame for smoother UI updates. The 50ms delay seems reasonable for most use cases.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 120
+COMMENT: The batchChangeDetection method is a good pattern for grouping multiple updates into a single change detection cycle, reducing performance overhead.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 130
+COMMENT: The getDisplayedProducts method efficiently handles both filtered and non-filtered states while maintaining proper pagination. The cache invalidation logic is well-placed.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 140
+COMMENT: The getGlobalIndexForCurrentItem method correctly handles the mapping between displayed items and their original positions, which is crucial for maintaining form control state.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 150
+COMMENT: The applyFilter method handles both simple and comma-separated search terms efficiently. The Turkish locale handling shows good internationalization consideration.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 160
+COMMENT: The clearFilter method properly resets all filter-related state and triggers change detection efficiently.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 170
+COMMENT: The onPageChange method correctly updates pagination state and triggers change detection. The getCurrentPageInfo method provides useful information for UI display.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 180
+COMMENT: The getTotalCount method correctly handles both filtered and non-filtered states for pagination calculations.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 190
+COMMENT: The calculateTotalTax and calculateGrandTotal methods are well-implemented and follow the existing pattern in the codebase.
+
+FILE: src/BidOne.BidIQ/BidOne.BidIQ.Web/ClientApp/bidIq-ui/src/app/feature/customer/quotes/product-list/product-list.component.ts
+LINE: 200
+COMMENT: The deleteRow method properly handles both filtered and non-filtered states when removing items. The batchChangeDetection wrapper ensures efficient updates.
+
+******************** SECTION: SUMMARY ********************
+
+SUMMARY: This PR adds significant functionality including pagination, filtering, and performance optimizations to the product list component. The code is well-structured with good separation of concerns and follows Angular best practices. The addition of Turkish locale support and comprehensive internationalization updates is commendable. However, the component has become quite large and complex, which could make maintenance challenging. Consider extracting some of the new functionality into separate services or utility classes to improve maintainability. The performance optimizations are well-implemented and should provide noticeable improvements in user experience, especially with large datasets.
+
+******************** END ********************
