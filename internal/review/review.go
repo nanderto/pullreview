@@ -2,6 +2,7 @@ package review
 
 import (
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -127,7 +128,7 @@ func (r *Review) ParseDiff() error {
 	return nil
 }
 
-// ParseUnifiedDiff parses a unified diff string into a slice of DiffFile.
+// ParseUnifiedDiff parses a unified diff string (git-style "diff --git" with "@@ ... @@" hunks) into a slice of DiffFile.
 func ParseUnifiedDiff(diff string) ([]*DiffFile, error) {
 	var files []*DiffFile
 	var currentFile *DiffFile
@@ -147,7 +148,9 @@ func ParseUnifiedDiff(diff string) ([]*DiffFile, error) {
 					currentFile.Hunks = append(currentFile.Hunks, currentHunk)
 					currentHunk = nil
 				}
-				files = append(files, currentFile)
+				if len(currentFile.Hunks) > 0 {
+					files = append(files, currentFile)
+				}
 			}
 			currentFile = &DiffFile{
 				OldPath: matches[1],
@@ -219,6 +222,9 @@ func ParseUnifiedDiff(diff string) ([]*DiffFile, error) {
 						newLineNum++
 					}
 				}
+			} else {
+				log.Printf("malformed hunk header: %s", line)
+				currentHunk = nil
 			}
 			continue
 		}
@@ -228,7 +234,9 @@ func ParseUnifiedDiff(diff string) ([]*DiffFile, error) {
 		if currentHunk != nil {
 			currentFile.Hunks = append(currentFile.Hunks, currentHunk)
 		}
-		files = append(files, currentFile)
+		if len(currentFile.Hunks) > 0 {
+			files = append(files, currentFile)
+		}
 	}
 	return files, nil
 }

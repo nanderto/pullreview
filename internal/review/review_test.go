@@ -118,6 +118,96 @@ func TestParseUnifiedDiff_Empty(t *testing.T) {
 	}
 }
 
+func TestParseUnifiedDiff_ContextOnlyHunk(t *testing.T) {
+	diff := `diff --git a/context.go b/context.go
+index 1..2 100644
+--- a/context.go
++++ b/context.go
+@@ -1,2 +1,2 @@
+ line one
+ line two
+`
+	files, err := ParseUnifiedDiff(diff)
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff failed: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	if len(files[0].Hunks) != 1 {
+		t.Fatalf("expected 1 hunk, got %d", len(files[0].Hunks))
+	}
+	hunk := files[0].Hunks[0]
+	if len(hunk.LineMapping) < 2 {
+		t.Fatalf("expected at least 2 mapped lines, got %d", len(hunk.LineMapping))
+	}
+	for _, hl := range hunk.LineMapping {
+		if hl.Type != ContextLine {
+			t.Errorf("expected context line, got %v", hl.Type)
+		}
+	}
+}
+
+func TestParseUnifiedDiff_MissingLineCountsInHunkHeader(t *testing.T) {
+	diff := `diff --git a/missing.go b/missing.go
+index 1..2 100644
+--- a/missing.go
++++ b/missing.go
+@@ -3 +3 @@
+-old
++new
+`
+	files, err := ParseUnifiedDiff(diff)
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff failed: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	if len(files[0].Hunks) != 1 {
+		t.Fatalf("expected 1 hunk, got %d", len(files[0].Hunks))
+	}
+	hunk := files[0].Hunks[0]
+	if hunk.OldLines != 1 {
+		t.Errorf("expected OldLines 1, got %d", hunk.OldLines)
+	}
+	if hunk.NewLines != 1 {
+		t.Errorf("expected NewLines 1, got %d", hunk.NewLines)
+	}
+}
+
+func TestParseUnifiedDiff_SkipsFilesWithoutHunks(t *testing.T) {
+	diff := `diff --git a/empty.go b/empty.go
+index 1..2 100644
+--- a/empty.go
++++ b/empty.go
+`
+	files, err := ParseUnifiedDiff(diff)
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff failed: %v", err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected 0 files, got %d", len(files))
+	}
+}
+
+func TestParseUnifiedDiff_MalformedHunkHeader(t *testing.T) {
+	diff := `diff --git a/bad.go b/bad.go
+index 1..2 100644
+--- a/bad.go
++++ b/bad.go
+@@ -1 +1 @
++line
+`
+	files, err := ParseUnifiedDiff(diff)
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff failed: %v", err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected 0 files, got %d", len(files))
+	}
+}
+
 func TestMatchCommentsToDiff(t *testing.T) {
 	diff := `diff --git a/foo.go b/foo.go
 index 1234567..89abcde 100644
