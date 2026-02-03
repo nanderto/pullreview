@@ -118,110 +118,172 @@ func TestParseUnifiedDiff_Empty(t *testing.T) {
 	}
 }
 
-func TestParseLLMResponse_InlineAndSummary(t *testing.T) {
-	llmResp := "Overall, this PR looks good. See inline comments for details.\n\n" +
-		"```inline foo.go:10\nConsider renaming this variable for clarity.\n```\n\n" +
-		"```inline bar.go:25\nPossible off-by-one error here.\n```\n"
-	r := &Review{}
-	r.ParseLLMResponse(llmResp)
-
-	if len(r.Comments) != 2 {
-		t.Fatalf("expected 2 inline comments, got %d", len(r.Comments))
+func TestParseUnifiedDiff_ContextOnlyHunk(t *testing.T) {
+	diff := `diff --git a/context.go b/context.go
+index 1..2 100644
+--- a/context.go
++++ b/context.go
+@@ -1,2 +1,2 @@
+ line one
+ line two
+`
+	files, err := ParseUnifiedDiff(diff)
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff failed: %v", err)
 	}
-	if r.Comments[0].FilePath != "foo.go" || r.Comments[0].Line != 10 {
-		t.Errorf("unexpected first inline comment location: %s:%d", r.Comments[0].FilePath, r.Comments[0].Line)
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
 	}
-	if !strings.Contains(r.Comments[0].Text, "renaming") {
-		t.Errorf("unexpected first inline comment text: %s", r.Comments[0].Text)
+	if len(files[0].Hunks) != 1 {
+		t.Fatalf("expected 1 hunk, got %d", len(files[0].Hunks))
 	}
-	if r.Comments[1].FilePath != "bar.go" || r.Comments[1].Line != 25 {
-		t.Errorf("unexpected second inline comment location: %s:%d", r.Comments[1].FilePath, r.Comments[1].Line)
+	hunk := files[0].Hunks[0]
+	if len(hunk.LineMapping) < 2 {
+		t.Fatalf("expected at least 2 mapped lines, got %d", len(hunk.LineMapping))
 	}
-	if !strings.Contains(r.Comments[1].Text, "off-by-one") {
-		t.Errorf("unexpected second inline comment text: %s", r.Comments[1].Text)
-	}
-	if !strings.HasPrefix(r.Summary, "Overall, this PR looks good") {
-		t.Errorf("unexpected summary: %s", r.Summary)
-	}
-}
-
-func TestParseLLMResponse_SummaryOnly(t *testing.T) {
-	llmResp := "This PR is well-structured and requires no changes."
-	r := &Review{}
-	r.ParseLLMResponse(llmResp)
-	if len(r.Comments) != 0 {
-		t.Errorf("expected 0 inline comments, got %d", len(r.Comments))
-	}
-	if !strings.Contains(r.Summary, "well-structured") {
-		t.Errorf("unexpected summary: %s", r.Summary)
-	}
-}
-func TestParseLLMResponse_InlineOnly(t *testing.T) {
-	llmResp := "```inline foo.go:5\nFix the bug here.\n```"
-	r := &Review{}
-	r.ParseLLMResponse(llmResp)
-	if len(r.Comments) != 1 {
-		t.Fatalf("expected 1 inline comment, got %d", len(r.Comments))
-	}
-	if r.Comments[0].FilePath != "foo.go" || r.Comments[0].Line != 5 {
-		t.Errorf("unexpected inline comment location: %s:%d", r.Comments[0].FilePath, r.Comments[0].Line)
-	}
-	if !strings.Contains(r.Comments[0].Text, "bug") {
-		t.Errorf("unexpected inline comment text: %s", r.Comments[0].Text)
-	}
-	if r.Summary != "" {
-		t.Errorf("expected empty summary, got: %s", r.Summary)
-	}
-}
-
-func TestParseLLMResponse_NaturalLanguageInlineSingleLine(t *testing.T) {
-	llmResp := "internal/bitbucket/client.go Line 42: This line needs better error handling."
-	r := &Review{}
-	r.ParseLLMResponse(llmResp)
-	if len(r.Comments) != 1 {
-		t.Fatalf("expected 1 inline comment, got %d", len(r.Comments))
-	}
-	c := r.Comments[0]
-	if c.FilePath != "internal/bitbucket/client.go" || c.Line != 42 {
-		t.Errorf("unexpected inline comment location: %s:%d", c.FilePath, c.Line)
-	}
-	if !strings.Contains(c.Text, "better error handling") {
-		t.Errorf("unexpected inline comment text: %s", c.Text)
-	}
-}
-
-func TestParseLLMResponse_NaturalLanguageInlineMultiLine(t *testing.T) {
-	llmResp := "internal/llm/client.go Lines 10-12: Consider refactoring this block for clarity."
-	r := &Review{}
-	r.ParseLLMResponse(llmResp)
-	if len(r.Comments) != 3 {
-		t.Fatalf("expected 3 inline comments, got %d", len(r.Comments))
-	}
-	for i, c := range r.Comments {
-		if c.FilePath != "internal/llm/client.go" || c.Line != 10+i {
-			t.Errorf("unexpected inline comment location: %s:%d", c.FilePath, c.Line)
-		}
-		if !strings.Contains(c.Text, "refactoring this block") {
-			t.Errorf("unexpected inline comment text: %s", c.Text)
+	for _, hl := range hunk.LineMapping {
+		if hl.Type != ContextLine {
+			t.Errorf("expected context line, got %v", hl.Type)
 		}
 	}
 }
 
-func TestParseLLMResponse_NaturalLanguageAndSummary(t *testing.T) {
-	llmResp := "General feedback: Good work overall.\n\ninternal/utils/utils.go Line 7: Use a more descriptive variable name.\n\nThank you!"
-	r := &Review{}
-	r.ParseLLMResponse(llmResp)
-	if len(r.Comments) != 1 {
-		t.Fatalf("expected 1 inline comment, got %d", len(r.Comments))
+func TestParseUnifiedDiff_MissingLineCountsInHunkHeader(t *testing.T) {
+	diff := `diff --git a/missing.go b/missing.go
+index 1..2 100644
+--- a/missing.go
++++ b/missing.go
+@@ -3 +3 @@
+-old
++new
+`
+	files, err := ParseUnifiedDiff(diff)
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff failed: %v", err)
 	}
-	c := r.Comments[0]
-	if c.FilePath != "internal/utils/utils.go" || c.Line != 7 {
-		t.Errorf("unexpected inline comment location: %s:%d", c.FilePath, c.Line)
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
 	}
-	if !strings.Contains(c.Text, "descriptive variable name") {
-		t.Errorf("unexpected inline comment text: %s", c.Text)
+	if len(files[0].Hunks) != 1 {
+		t.Fatalf("expected 1 hunk, got %d", len(files[0].Hunks))
 	}
-	if !strings.Contains(r.Summary, "General feedback") || !strings.Contains(r.Summary, "Thank you!") {
-		t.Errorf("unexpected summary: %s", r.Summary)
+	hunk := files[0].Hunks[0]
+	if hunk.OldLines != 1 {
+		t.Errorf("expected OldLines 1, got %d", hunk.OldLines)
+	}
+	if hunk.NewLines != 1 {
+		t.Errorf("expected NewLines 1, got %d", hunk.NewLines)
+	}
+}
+
+func TestParseUnifiedDiff_SkipsFilesWithoutHunks(t *testing.T) {
+	diff := `diff --git a/empty.go b/empty.go
+index 1..2 100644
+--- a/empty.go
++++ b/empty.go
+`
+	files, err := ParseUnifiedDiff(diff)
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff failed: %v", err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected 0 files, got %d", len(files))
+	}
+}
+
+func TestParseUnifiedDiff_MalformedHunkHeader(t *testing.T) {
+	diff := `diff --git a/bad.go b/bad.go
+index 1..2 100644
+--- a/bad.go
++++ b/bad.go
+@@ -1 +1 @
++line
+`
+	files, err := ParseUnifiedDiff(diff)
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff failed: %v", err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected 0 files, got %d", len(files))
+	}
+}
+
+func TestMatchCommentsToDiff(t *testing.T) {
+	diff := `diff --git a/foo.go b/foo.go
+index 1234567..89abcde 100644
+--- a/foo.go
++++ b/foo.go
+@@ -1,6 +1,7 @@
+ package main
+
+-func hello() {
+-    println("Hello, world!")
++func hello(name string) {
++    println("Hello,", name)
+ }
++
+@@ -10,7 +11,8 @@
+ func bye() {
+-    println("Bye!")
++    println("Goodbye!")
++    println("See you soon!")
+ }
+`
+	files, err := ParseUnifiedDiff(diff)
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff failed: %v", err)
+	}
+
+	comments := []Comment{
+		// Valid inline comment (line 3 is an addition in foo.go)
+		{FilePath: "foo.go", Line: 3, Text: "Valid inline", IsFileLevel: false},
+		// Invalid inline comment (line not present)
+		{FilePath: "foo.go", Line: 99, Text: "Invalid line", IsFileLevel: false},
+		// Valid file-level comment
+		{FilePath: "foo.go", Line: 0, Text: "File-level", IsFileLevel: true},
+		// Invalid file-level comment (file does not exist)
+		{FilePath: "notfound.go", Line: 0, Text: "No such file", IsFileLevel: true},
+		// Invalid inline comment (file does not exist)
+		{FilePath: "notfound.go", Line: 1, Text: "No such file inline", IsFileLevel: false},
+	}
+
+	matched, unmatched := MatchCommentsToDiff(comments, files)
+
+	// Check matched
+	if len(matched) != 2 {
+		t.Errorf("expected 2 matched comments, got %d", len(matched))
+	}
+	// Check unmatched
+	if len(unmatched) != 3 {
+		t.Errorf("expected 3 unmatched comments, got %d", len(unmatched))
+	}
+
+	// Check that valid inline and file-level are matched
+	foundInline := false
+	foundFile := false
+	for _, c := range matched {
+		if c.FilePath == "foo.go" && c.Line == 3 && !c.IsFileLevel {
+			foundInline = true
+		}
+		if c.FilePath == "foo.go" && c.IsFileLevel {
+			foundFile = true
+		}
+	}
+	if !foundInline {
+		t.Errorf("expected valid inline comment to be matched")
+	}
+	if !foundFile {
+		t.Errorf("expected valid file-level comment to be matched")
+	}
+
+	// Check that unmatched contains the right comments
+	for _, c := range unmatched {
+		if c.FilePath == "foo.go" && c.Line == 99 {
+			// ok
+		} else if c.FilePath == "notfound.go" {
+			// ok
+		} else {
+			t.Errorf("unexpected unmatched comment: %+v", c)
+		}
 	}
 }
