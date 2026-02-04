@@ -50,6 +50,13 @@ type ReviewResponse struct {
 
 // SendReviewPrompt sends the review prompt to the configured LLM provider and returns the response.
 func (c *Client) SendReviewPrompt(prompt string) (string, error) {
+	// Always print provider and model to stdout before sending the prompt
+	model := c.Model
+	if model == "" {
+		model = "gpt-3.5-turbo"
+	}
+	fmt.Fprintf(os.Stdout, "[llm] Using provider %q with model %q\n", c.Provider, model)
+
 	switch strings.ToLower(c.Provider) {
 	case "openai", "openrouter":
 		return c.sendOpenAI(prompt)
