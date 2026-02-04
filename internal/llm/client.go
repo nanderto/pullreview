@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"pullreview/internal/copilot"
 	"strings"
 )
 
@@ -52,9 +53,27 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 	switch strings.ToLower(c.Provider) {
 	case "openai", "openrouter":
 		return c.sendOpenAI(prompt)
+	case "copilot":
+		return c.sendCopilot(prompt)
 	default:
 		return "", fmt.Errorf("unsupported LLM provider: %s", c.Provider)
 	}
+}
+
+// sendCopilot sends the prompt to GitHub Copilot via the SDK and returns the response.
+func (c *Client) sendCopilot(prompt string) (string, error) {
+	// Set verbose mode on the copilot package to match our setting
+	copilot.SetVerbose(verboseMode)
+
+	// Create a Copilot client with the configured model
+	copilotClient := copilot.NewClient(c.Model)
+
+	if verboseMode {
+		fmt.Fprintf(os.Stderr, "[llm] Provider: %s\n", c.Provider)
+		fmt.Fprintf(os.Stderr, "[llm] Model: %s\n", c.Model)
+	}
+
+	return copilotClient.SendReviewPrompt(prompt)
 }
 
 // sendOpenAI sends the prompt to OpenAI's Chat API and returns the response.

@@ -163,9 +163,10 @@ prompt_file: prompt.md
 The following environment variables are supported and override values from the config file:
 
 - `BITBUCKET_API_TOKEN` – Bitbucket API token
-- `LLM_PROVIDER` – LLM provider (e.g., openai)
-- `LLM_API_KEY` – LLM API key
-- `LLM_ENDPOINT` – LLM API endpoint
+- `LLM_PROVIDER` – LLM provider (e.g., openai, openrouter, copilot)
+- `LLM_API_KEY` – LLM API key (not required for copilot provider)
+- `LLM_ENDPOINT` – LLM API endpoint (not required for copilot provider)
+- `LLM_MODEL` – LLM model name
 - `PULLREVIEW_PROMPT_FILE` – Path to the prompt file
 
 
@@ -287,9 +288,56 @@ This helps the LLM understand exactly what changed and where, improving the qual
 
 ---
 
-## LLM Integration (OpenAI & OpenRouter Example)
+## LLM Integration
 
+The tool supports multiple LLM providers:
+- **OpenAI** - Direct OpenAI API
+- **OpenRouter** - Access to multiple models via OpenRouter
+- **Copilot** - GitHub Copilot via the Copilot SDK (requires Copilot CLI)
 
+---
+
+### GitHub Copilot SDK Integration
+
+The tool supports GitHub Copilot as an LLM provider via the [GitHub Copilot SDK](https://github.com/github/copilot-sdk). This allows you to use your existing GitHub Copilot subscription for code reviews.
+
+#### Prerequisites for Copilot
+
+1. **GitHub Copilot Subscription** - You need an active Copilot subscription (Individual, Pro, Business, or Enterprise)
+2. **Copilot CLI** - Install from https://github.com/github/copilot-cli
+3. **Authentication** - Run `copilot auth login` to authenticate
+4. **Organization Policy** (for Business/Enterprise) - Your organization admin must enable the Copilot CLI policy in settings
+
+#### Copilot Configuration
+
+```yaml
+llm:
+  provider: copilot
+  model: gpt-4.1           # Optional, defaults to gpt-4.1
+```
+
+**Note:** No API key is required when using Copilot - authentication is handled through the Copilot CLI.
+
+#### Available Copilot Models
+
+- `gpt-4.1` (default)
+- `gpt-5`
+- Other models as supported by your Copilot subscription
+
+#### Environment Variables for Copilot
+
+- `LLM_PROVIDER=copilot` - Set provider to Copilot
+- `LLM_MODEL` - Override the model
+
+#### Important Notes
+
+- The Copilot SDK is currently in **Technical Preview** and may not be suitable for production use
+- Billing follows your Copilot subscription (free tier has limited usage)
+- Premium request quotas apply based on your subscription level
+
+---
+
+### OpenAI & OpenRouter
 
 The tool supports sending review prompts to an LLM provider using the OpenAI-compatible API format. This includes OpenAI, OpenRouter, and other compatible services.
 

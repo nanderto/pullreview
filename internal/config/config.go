@@ -91,6 +91,9 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken string) (*Config, error) {
 	if v := os.Getenv("LLM_ENDPOINT"); v != "" {
 		cfg.LLM.Endpoint = v
 	}
+	if v := os.Getenv("LLM_MODEL"); v != "" {
+		cfg.LLM.Model = v
+	}
 	if v := os.Getenv("PULLREVIEW_PROMPT_FILE"); v != "" {
 		cfg.PromptFile = v
 	}
@@ -121,7 +124,14 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken string) (*Config, error) {
 		}
 	}
 
-	// 5. Validate required fields
+	// 5. Set defaults for Copilot provider
+	if strings.ToLower(cfg.LLM.Provider) == "copilot" {
+		if strings.TrimSpace(cfg.LLM.Model) == "" {
+			cfg.LLM.Model = "gpt-4.1" // Default model for Copilot
+		}
+	}
+
+	// 6. Validate required fields
 	var missing []string
 	if strings.TrimSpace(cfg.Bitbucket.Email) == "" {
 		missing = append(missing, "bitbucket.email")
@@ -131,9 +141,7 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken string) (*Config, error) {
 	}
 
 	if strings.TrimSpace(cfg.Bitbucket.Workspace) == "" {
-
 		missing = append(missing, "bitbucket.workspace")
-
 	}
 
 	if strings.TrimSpace(cfg.Bitbucket.RepoSlug) == "" {
@@ -142,16 +150,13 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken string) (*Config, error) {
 	if strings.TrimSpace(cfg.LLM.Provider) == "" {
 		missing = append(missing, "llm.provider")
 	}
-	if strings.TrimSpace(cfg.LLM.APIKey) == "" {
-
+	// API key is only required for non-Copilot providers
+	if strings.ToLower(cfg.LLM.Provider) != "copilot" && strings.TrimSpace(cfg.LLM.APIKey) == "" {
 		missing = append(missing, "llm.api_key")
-
 	}
 
 	if strings.TrimSpace(cfg.PromptFile) == "" {
-
 		missing = append(missing, "prompt_file")
-
 	}
 
 	if len(missing) > 0 {
