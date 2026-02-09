@@ -41,10 +41,10 @@ type Config struct {
 }
 
 // LoadConfigWithOverrides loads configuration from a YAML file, then applies overrides from
-// environment variables and finally from CLI flags (email, apiToken).
+// environment variables and finally from CLI flags (email, apiToken, repoSlug).
 
 // Returns a validated Config or an error if required fields are missing.
-func LoadConfigWithOverrides(cfgFile, email, apiToken string) (*Config, error) {
+func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string) (*Config, error) {
 
 	cfg := &Config{}
 
@@ -74,7 +74,7 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken string) (*Config, error) {
 
 	}
 
-	if v := os.Getenv("BITBUCKET_REPO_SLUG"); v != "" {
+	if v := os.Getenv("BITBUCKET_REPO_SLUG"); v != "" && repoSlug == "" {
 		cfg.Bitbucket.RepoSlug = v
 	}
 	if v := os.Getenv("BITBUCKET_BASE_URL"); v != "" {
@@ -104,6 +104,9 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken string) (*Config, error) {
 	}
 	if apiToken != "" {
 		cfg.Bitbucket.APIToken = apiToken
+	}
+	if repoSlug != "" {
+		cfg.Bitbucket.RepoSlug = repoSlug
 	}
 
 	// 4. Set default for BaseURL if not set

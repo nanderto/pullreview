@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	
 	"github.com/spf13/cobra"
 
 	"pullreview/internal/bitbucket"
@@ -25,6 +24,7 @@ var (
 	prID        string
 	bbEmail     string
 	bbAPIToken  string
+	repoSlug    string
 	showVersion bool
 	verbose     bool
 	postToBB    bool
@@ -53,6 +53,7 @@ func main() {
 	rootCmd.Flags().StringVar(&prID, "pr", "", "Bitbucket Pull Request ID (overrides branch inference)")
 	rootCmd.Flags().StringVar(&bbEmail, "email", "", "Bitbucket account email (overrides config/env)")
 	rootCmd.Flags().StringVar(&bbAPIToken, "token", "", "Bitbucket API token (overrides config/env)")
+	rootCmd.Flags().StringVar(&repoSlug, "repo", "", "Bitbucket repository slug (overrides config/env)")
 	rootCmd.Flags().BoolVar(&showVersion, "version", false, "Show version and exit")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.Flags().BoolVar(&postToBB, "post", false, "Post comments to Bitbucket (default: false, just print comments)")
@@ -81,7 +82,7 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 
 	// Load configuration with overrides from CLI flags
 
-	cfg, err := config.LoadConfigWithOverrides(cfgFile, bbEmail, bbAPIToken)
+	cfg, err := config.LoadConfigWithOverrides(cfgFile, bbEmail, bbAPIToken, repoSlug)
 
 	if err != nil {
 

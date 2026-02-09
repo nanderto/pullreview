@@ -76,6 +76,14 @@ Review **every file and every changed chunk** in the diff.
 
 Your task is **defect detection only** — not mentorship, documentation, or explanation.
 
+### UNIT TESTS REVIEW
+* Make sure there are tests written and **ONLY** need to check for the new code. If there is no tests found in the PR, **MUST** raise a summary comment to indicate that
+* Verify each test case and make sure they are real tests i.e. test the actual code and not mock code
+* Verify the test name and its code, make sure they are consistent
+* Verify if the tests are covering both happy and unhappy paths
+* Verify if the tests doing dependencies stubs/mocks correctly, without depending on external live services
+* Identify any duplicated tests
+
 ---
 
 ## FILE-LEVEL REVIEW (UNANCHORED)
@@ -147,6 +155,7 @@ Write a summary **ONLY** to:
 * Identify **major defects**
 * Call out **high-risk or blocking issues**
 * Highlight **systemic problems**
+* If none of the above issues found, just write a short concise summary "Code review has been done and no issues found."
 
 Do **NOT**:
 

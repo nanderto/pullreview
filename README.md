@@ -2,6 +2,16 @@
 
 `pullreview` is a command-line tool that automates code review for Bitbucket Cloud pull requests using a Large Language Model (LLM). It fetches PR diffs, sends them to an LLM for review, and posts AI-generated comments (inline and summary) back to Bitbucket. The tool is designed for Windows and is highly configurable.
 
+Usage example
+
+```
+# Windows
+pullreview.exe --repo menuplanning-api --pr 89 --verbose
+
+# Linux
+./pullreview --repo menuplanning-api --pr 89 --verbose
+```
+
 ---
 
 ## Features
@@ -31,7 +41,7 @@ Clone the repository and build the executable:
 ```sh
 git clone https://your.repo.url/pullreview.git
 cd pullreview
-go build -o pullreview.exe
+go build ./cmd/pullrequest
 ```
 
 ---
@@ -113,17 +123,13 @@ Overall, this PR improves code clarity. See inline comments for details.
 ```inline foo.go:10
 Consider renaming this variable for clarity.
 ```
+```
 
 ```inline bar.go:25
 Possible off-by-one error here.
 ```
-```
 
 In both examples, inline comments will be posted to the specified files/lines, and the summary will be posted as a top-level comment.
-
-
-
----
 
 
 ## Configuration
@@ -141,20 +147,8 @@ All required configuration fields must be set by one of these methods, or the to
 
 ### Example `pullreview.yaml`
 
-```yaml
-bitbucket:
-  api_token: your_bitbucket_api_token
-  workspace: your_workspace_id
-  base_url: https://api.bitbucket.org/2.0  # Optional, defaults to this
-
-llm:
-  provider: openai
-  api_key: your_openai_api_key
-  endpoint: https://api.openai.com/v1/chat/completions
-
-prompt_file: prompt.md
-```
-
+- Copy the example [pullreview.yaml.example](pullreview.yaml.example) configuration file and rename it to `pullreview.yaml`
+- Update the values
 
 ### Environment Variables
 
