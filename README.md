@@ -41,7 +41,7 @@ Clone the repository and build the executable:
 ```sh
 git clone https://your.repo.url/pullreview.git
 cd pullreview
-go build -o pullreview.exe ./cmd/pullrequest
+go build ./cmd/pullrequest
 ```
 
 ---
