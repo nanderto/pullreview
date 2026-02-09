@@ -28,6 +28,7 @@ var (
 	showVersion bool
 	verbose     bool
 	postToBB    bool
+	skipInline  bool
 	version     = "0.1.0"
 )
 
@@ -57,6 +58,7 @@ func main() {
 	rootCmd.Flags().BoolVar(&showVersion, "version", false, "Show version and exit")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.Flags().BoolVar(&postToBB, "post", false, "Post comments to Bitbucket (default: false, just print comments)")
+	rootCmd.Flags().BoolVar(&skipInline, "skip-inline", false, "Skip interactive prompt (non-interactive mode)")
 
 	cobra.OnInitialize(initConfig)
 
@@ -254,15 +256,24 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if !postToBB {
-		fmt.Println("ℹ️  Not posting comments to Bitbucket (use --post to enable).")
+	// Determine if we should post based on skip-inline flag and user confirmation
+	shouldPost := postToBB
+	if !skipInline {
+		// Interactive mode: prompt user
+		confirmed, err := utils.PromptYesNo("Should I post this review to Bitbucket?", "n")
+		if err != nil {
+			return fmt.Errorf("failed to read user input: %w", err)
+		}
+		shouldPost = confirmed
+	}
+
+	if !shouldPost {
+		fmt.Println("ℹ️  Review not posted to Bitbucket.")
 		return nil
 	}
 
 	// Bitbucket posting output section
-	fmt.Fprintf(os.Stderr, "==============================================================================================================================\n")
-	fmt.Fprintf(os.Stderr, "[bitbucket] Posting comments to Bitbucket:\n")
-	fmt.Fprintf(os.Stderr, "==============================================================================================================================\n\n")
+	fmt.Println("\n📤 Posting review to Bitbucket...")
 
 	// Post inline and file-level comments (only matched)
 	inlineCount := 0
@@ -270,23 +281,17 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 		if cmt.IsFileLevel {
 			err := bbClient.PostSummaryComment(finalPRID, cmt.Text)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "❌ Failed to post file-level comment to %s: %v\n", cmt.FilePath, err)
-				if verbose {
-					fmt.Fprintf(os.Stderr, "    [bitbucket] Error details: %v\n", err)
-				}
+				fmt.Fprintf(os.Stderr, "   ❌ Failed to post file-level comment to %s: %v\n", cmt.FilePath, err)
 			} else {
-				fmt.Fprintf(os.Stderr, "✅ Posted file-level comment to %s\n", cmt.FilePath)
+				fmt.Printf("   ✅ Posted file-level comment to %s\n", cmt.FilePath)
 			}
 		} else {
 			err := bbClient.PostInlineComment(finalPRID, cmt.FilePath, cmt.Line, cmt.Text)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "❌ Failed to post inline comment to %s:%d: %v\n", cmt.FilePath, cmt.Line, err)
-				if verbose {
-					fmt.Fprintf(os.Stderr, "    [bitbucket] Error details: %v\n", err)
-				}
+				fmt.Fprintf(os.Stderr, "   ❌ Failed to post inline comment to %s:%d: %v\n", cmt.FilePath, cmt.Line, err)
 			} else {
 				inlineCount++
-				fmt.Fprintf(os.Stderr, "✅ Posted inline comment to %s:%d\n", cmt.FilePath, cmt.Line)
+				fmt.Printf("   ✅ Posted inline comment to %s:%d\n", cmt.FilePath, cmt.Line)
 			}
 		}
 	}
@@ -296,20 +301,14 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 	if summaryWithUnmatched != "" {
 		err := bbClient.PostSummaryComment(finalPRID, summaryWithUnmatched)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "❌ Failed to post summary comment: %v\n", err)
-			if verbose {
-				fmt.Fprintf(os.Stderr, "    [bitbucket] Error details: %v\n", err)
-			}
+			fmt.Fprintf(os.Stderr, "   ❌ Failed to post summary comment: %v\n", err)
 		} else {
 			summaryPosted = true
-			fmt.Fprintln(os.Stderr, "✅ Posted summary comment to PR")
+			fmt.Println("   ✅ Posted summary comment")
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "\n==============================================================================================================================\n")
-	fmt.Fprintf(os.Stderr, "==============================================================================================================================\n")
-
-	fmt.Printf("✅ Posted %d inline comment(s)%s to PR #%s\n", inlineCount,
+	fmt.Printf("\n✅ Successfully posted %d inline comment(s)%s to PR #%s\n", inlineCount,
 		func() string {
 			if summaryPosted {
 				return " and summary"
