@@ -44,7 +44,7 @@ llm:
 prompt_file: prompt.md
 `
 	cfgFile := writeTempConfigFile(t, yaml)
-	cfg, err := LoadConfigWithOverrides(cfgFile, "", "")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -103,7 +103,7 @@ prompt_file: prompt.md
 	defer os.Unsetenv("BITBUCKET_BASE_URL")
 	defer os.Unsetenv("LLM_API_KEY")
 
-	cfg, err := LoadConfigWithOverrides(cfgFile, "", "")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -157,7 +157,7 @@ prompt_file: prompt.md
 	defer os.Unsetenv("BITBUCKET_WORKSPACE")
 	defer os.Unsetenv("BITBUCKET_BASE_URL")
 
-	cfg, err := LoadConfigWithOverrides(cfgFile, "cliuser@example.com", "clitoken")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "cliuser@example.com", "clitoken", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -200,7 +200,7 @@ llm:
 prompt_file: ""
 `
 	cfgFile := writeTempConfigFile(t, yaml)
-	_, err := LoadConfigWithOverrides(cfgFile, "", "")
+	_, err := LoadConfigWithOverrides(cfgFile, "", "", "")
 	if err == nil {
 		t.Fatal("expected error for missing required config, got nil")
 	}
@@ -243,7 +243,7 @@ prompt_file: prompt.md
 	defer os.Unsetenv("BITBUCKET_WORKSPACE")
 	defer os.Unsetenv("BITBUCKET_BASE_URL")
 
-	cfg, err := LoadConfigWithOverrides(cfgFile, "cliuser@example.com", "clitoken")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "cliuser@example.com", "clitoken", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
