@@ -5,18 +5,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"pullreview/internal/bitbucket"
-
 	"pullreview/internal/config"
-
-	"io/ioutil"
 	"pullreview/internal/llm"
 	"pullreview/internal/review"
 	"pullreview/internal/utils"
-	"strings"
 )
 
 var (
@@ -32,15 +29,8 @@ var (
 )
 
 func main() {
-	// Determine default config path: executable directory
-	defaultConfig := "pullreview.yaml"
-	if exePath, err := os.Executable(); err == nil {
-		exeDir := ""
-		if exePath != "" {
-			exeDir = filepath.Dir(exePath)
-			defaultConfig = filepath.Join(exeDir, "pullreview.yaml")
-		}
-	}
+	// Config file is optional - can rely entirely on env vars
+	defaultConfig := ""
 
 	rootCmd := &cobra.Command{
 		Use:   "pullreview",
@@ -49,7 +39,7 @@ func main() {
 		RunE:  runPullReview,
 	}
 
-	rootCmd.Flags().StringVarP(&cfgFile, "config", "c", defaultConfig, "Path to config file")
+	rootCmd.Flags().StringVarP(&cfgFile, "config", "c", defaultConfig, "Path to config file (optional, defaults to env vars)")
 	rootCmd.Flags().StringVar(&prID, "pr", "", "Bitbucket Pull Request ID (overrides branch inference)")
 	rootCmd.Flags().StringVar(&bbEmail, "email", "", "Bitbucket account email (overrides config/env)")
 	rootCmd.Flags().StringVar(&bbAPIToken, "token", "", "Bitbucket API token (overrides config/env)")
@@ -191,7 +181,7 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load prompt template
-	promptBytes, err := ioutil.ReadFile(promptPath)
+	promptBytes, err := os.ReadFile(promptPath)
 	if err != nil {
 		return fmt.Errorf("failed to read prompt file %q: %w", promptPath, err)
 	}

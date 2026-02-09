@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"pullreview/internal/utils"
 	"strings"
@@ -48,16 +47,16 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string) (*Config
 
 	cfg := &Config{}
 
-	// 1. Load from YAML file
-	if cfgFile == "" {
-		return nil, errors.New("config file path must be provided explicitly")
-	}
-	data, err := ioutil.ReadFile(cfgFile)
-	if err != nil {
-		return nil, fmt.Errorf("could not read config file %s: %w", cfgFile, err)
-	}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("could not parse YAML config: %w", err)
+	// 1. Load from YAML file (optional)
+	if cfgFile != "" {
+		data, err := os.ReadFile(cfgFile)
+		if err != nil {
+			// Only return error if file was explicitly provided but can't be read
+			return nil, fmt.Errorf("could not read config file %s: %w", cfgFile, err)
+		}
+		if err := yaml.Unmarshal(data, cfg); err != nil {
+			return nil, fmt.Errorf("could not parse YAML config: %w", err)
+		}
 	}
 
 	// 2. Override with environment variables if set (but only if not set by CLI flags)
