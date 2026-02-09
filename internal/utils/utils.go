@@ -1,7 +1,10 @@
 package utils
 
 import (
+	"bufio"
 	"bytes"
+	"fmt"
+	"os"
 	"os/exec"
 	"path"
 	"regexp"
@@ -59,4 +62,45 @@ func GetRepoSlugFromGitRemote(repoPath string) (string, error) {
 	}
 
 	return "", err
+}
+
+// PromptYesNo prompts the user with a yes/no question and returns true if yes, false otherwise.
+// The defaultAnswer parameter determines what happens on empty input ("y" or "n").
+func PromptYesNo(question string, defaultAnswer string) (bool, error) {
+	reader := bufio.NewReader(os.Stdin)
+	defaultAnswer = strings.ToLower(defaultAnswer)
+
+	// Display prompt with default indicator
+	prompt := question
+	if defaultAnswer == "y" {
+		prompt += " [Y/n]: "
+	} else {
+		prompt += " [y/N]: "
+	}
+	fmt.Print(prompt)
+
+	// Read user input
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+
+	// Trim whitespace and normalize
+	input = strings.TrimSpace(strings.ToLower(input))
+
+	// Handle empty input (use default)
+	if input == "" {
+		return defaultAnswer == "y", nil
+	}
+
+	// Check for yes/no
+	if input == "y" || input == "yes" {
+		return true, nil
+	}
+	if input == "n" || input == "no" {
+		return false, nil
+	}
+
+	// Invalid input: treat as "no" (safer default)
+	return false, nil
 }
