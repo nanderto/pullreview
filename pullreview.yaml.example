@@ -2,6 +2,7 @@ bitbucket:
   email: your_email
   api_token: your_bitbucket_api_token
   workspace: your_workspace_id
+  repo_slug: your_repo_name
   base_url: https://api.bitbucket.org/2.0  # Optional, defaults to this
 
 llm:

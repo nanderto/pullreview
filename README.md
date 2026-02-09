@@ -2,6 +2,16 @@
 
 `pullreview` is a command-line tool that automates code review for Bitbucket Cloud pull requests using a Large Language Model (LLM). It fetches PR diffs, sends them to an LLM for review, and posts AI-generated comments (inline and summary) back to Bitbucket. The tool is designed for Windows and is highly configurable.
 
+Usage example
+
+```
+# Windows
+pullreview.exe --repo menuplanning-api --pr 89 --verbose
+
+# Linux
+./pullreview --repo menuplanning-api --pr 89 --verbose
+```
+
 ---
 
 ## Features
