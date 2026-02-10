@@ -20,6 +20,17 @@ func writeTempConfigFile(t *testing.T, content string) string {
 	return tmpFile
 }
 
+// Helper to write a temporary prompt file for testing.
+func writeTempPromptFile(t *testing.T, dir string) string {
+	t.Helper()
+	promptFile := filepath.Join(dir, "prompt.md")
+	content := "Test prompt template (DIFF_CONTENT_HERE)"
+	if err := os.WriteFile(promptFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write temp prompt file: %v", err)
+	}
+	return promptFile
+}
+
 func TestLoadConfigWithOverrides_YAMLOnly(t *testing.T) {
 	// Unset all relevant env vars for test isolation
 	os.Unsetenv("BITBUCKET_EMAIL")
@@ -31,6 +42,9 @@ func TestLoadConfigWithOverrides_YAMLOnly(t *testing.T) {
 	os.Unsetenv("LLM_ENDPOINT")
 	os.Unsetenv("PULLREVIEW_PROMPT_FILE")
 
+	tmpDir := t.TempDir()
+	promptFile := writeTempPromptFile(t, tmpDir)
+
 	yaml := `
 bitbucket:
   email: user@example.com
@@ -41,7 +55,7 @@ llm:
   provider: openai
   api_key: key1
   endpoint: https://api.openai.com/v1/chat/completions
-prompt_file: prompt.md
+prompt_file: ` + promptFile + `
 `
 	cfgFile := writeTempConfigFile(t, yaml)
 	cfg, err := LoadConfigWithOverrides(cfgFile, "", "", "")
@@ -63,8 +77,8 @@ prompt_file: prompt.md
 	if cfg.LLM.Provider != "openai" {
 		t.Errorf("expected provider 'openai', got '%s'", cfg.LLM.Provider)
 	}
-	if cfg.PromptFile != "prompt.md" {
-		t.Errorf("expected prompt_file 'prompt.md', got '%s'", cfg.PromptFile)
+	if cfg.PromptFile != promptFile {
+		t.Errorf("expected prompt_file '%s', got '%s'", promptFile, cfg.PromptFile)
 	}
 }
 
@@ -79,6 +93,9 @@ func TestLoadConfigWithOverrides_EnvOverride(t *testing.T) {
 	os.Unsetenv("LLM_ENDPOINT")
 	os.Unsetenv("PULLREVIEW_PROMPT_FILE")
 
+	tmpDir := t.TempDir()
+	promptFile := writeTempPromptFile(t, tmpDir)
+
 	yaml := `
 bitbucket:
   email: user@example.com
@@ -89,7 +106,7 @@ llm:
   provider: openai
   api_key: key1
   endpoint: https://api.openai.com/v1/chat/completions
-prompt_file: prompt.md
+prompt_file: ` + promptFile + `
 `
 	cfgFile := writeTempConfigFile(t, yaml)
 	os.Setenv("BITBUCKET_EMAIL", "envuser@example.com")
@@ -135,6 +152,9 @@ func TestLoadConfigWithOverrides_CLIOverride(t *testing.T) {
 	os.Unsetenv("LLM_ENDPOINT")
 	os.Unsetenv("PULLREVIEW_PROMPT_FILE")
 
+	tmpDir := t.TempDir()
+	promptFile := writeTempPromptFile(t, tmpDir)
+
 	yaml := `
 bitbucket:
   email: user@example.com
@@ -145,7 +165,7 @@ llm:
   provider: openai
   api_key: key1
   endpoint: https://api.openai.com/v1/chat/completions
-prompt_file: prompt.md
+prompt_file: ` + promptFile + `
 `
 	cfgFile := writeTempConfigFile(t, yaml)
 	os.Setenv("BITBUCKET_EMAIL", "envuser@example.com")
@@ -221,6 +241,9 @@ func TestLoadConfigWithOverrides_EnvAndCLIPrecedence(t *testing.T) {
 	os.Unsetenv("LLM_ENDPOINT")
 	os.Unsetenv("PULLREVIEW_PROMPT_FILE")
 
+	tmpDir := t.TempDir()
+	promptFile := writeTempPromptFile(t, tmpDir)
+
 	yaml := `
 bitbucket:
   email: user@example.com
@@ -231,7 +254,7 @@ llm:
   provider: openai
   api_key: key1
   endpoint: https://api.openai.com/v1/chat/completions
-prompt_file: prompt.md
+prompt_file: ` + promptFile + `
 `
 	cfgFile := writeTempConfigFile(t, yaml)
 	os.Setenv("BITBUCKET_EMAIL", "envuser@example.com")

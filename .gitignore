@@ -39,3 +39,4 @@ Answers.md
 # Ignore build output at project root
 /pullreview
 pullreview.exe
+slim.report.json

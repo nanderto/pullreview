@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"pullreview/internal/utils"
 	"strings"
 
@@ -47,15 +48,21 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string) (*Config
 
 	cfg := &Config{}
 
-	// 1. Load from YAML file (optional)
+	// 1. Load from YAML file (optional - only error if explicitly requested file is missing)
 	if cfgFile != "" {
 		data, err := os.ReadFile(cfgFile)
 		if err != nil {
-			// Only return error if file was explicitly provided but can't be read
-			return nil, fmt.Errorf("could not read config file %s: %w", cfgFile, err)
-		}
-		if err := yaml.Unmarshal(data, cfg); err != nil {
-			return nil, fmt.Errorf("could not parse YAML config: %w", err)
+			// If file doesn't exist and appears to be auto-detected, just skip it (race condition)
+			if os.IsNotExist(err) && filepath.Base(cfgFile) == "pullreview.yaml" {
+				// Config file not found, will rely on env vars
+			} else {
+				// User explicitly provided a config that doesn't exist
+				return nil, fmt.Errorf("could not read config file %s: %w", cfgFile, err)
+			}
+		} else {
+			if err := yaml.Unmarshal(data, cfg); err != nil {
+				return nil, fmt.Errorf("could not parse YAML config: %w", err)
+			}
 		}
 	}
 
@@ -133,6 +140,14 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string) (*Config
 		}
 	}
 
+	// 5b. Set default for PromptFile if not set (look for prompt.md next to executable)
+	if strings.TrimSpace(cfg.PromptFile) == "" {
+		if exePath, err := os.Executable(); err == nil {
+			exeDir := filepath.Dir(exePath)
+			cfg.PromptFile = filepath.Join(exeDir, "prompt.md")
+		}
+	}
+
 	// 6. Validate required fields
 	var missing []string
 	if strings.TrimSpace(cfg.Bitbucket.Email) == "" {
@@ -165,6 +180,15 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string) (*Config
 
 		return nil, errors.New("missing required config values: " + strings.Join(missing, ", "))
 
+	}
+
+	// 7. Validate that prompt file exists and is readable
+	if cfg.PromptFile != "" {
+		if _, err := os.Stat(cfg.PromptFile); os.IsNotExist(err) {
+			return nil, fmt.Errorf("prompt file does not exist: %s (ensure it's mounted or available)", cfg.PromptFile)
+		} else if err != nil {
+			return nil, fmt.Errorf("cannot access prompt file %s: %w", cfg.PromptFile, err)
+		}
 	}
 
 	return cfg, nil
