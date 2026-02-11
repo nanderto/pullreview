@@ -52,9 +52,11 @@ After the LLM review is generated, `pullreview` will:
 
 - **Parse the LLM response** for both inline and summary comments.
 - **Print the summary and all inline comments** to the terminal for review.
-- **Optionally post comments to Bitbucket** using the `--post` flag.
-  - If `--post` is not set, no comments are posted (preview mode).
-  - If `--post` is set, all inline and summary comments are posted to the PR.
+- **Prompt you to confirm** before posting to Bitbucket (unless `--skip-inline` is set).
+  - Default behavior: Shows review, then asks "Should I post this review to Bitbucket? [y/N]"
+  - If you confirm (y/yes), all inline and summary comments are posted to the PR.
+  - If you decline (n/no or Enter), no comments are posted.
+  - Use `--skip-inline` flag for non-interactive mode (no prompt).
 - All comments are posted in Markdown format.
 
 
@@ -166,13 +168,19 @@ The following environment variables are supported and override values from the c
 
 ### Command-Line Flags
 
-- `--token` Bitbucket API token
-- `--pr` Pull request ID (optional; inferred from branch by default)
+- `--config`, `-c` - Path to config file (default: `pullreview.yaml`)
+- `--pr` - Pull request ID (optional; inferred from branch by default)
+- `--email` - Bitbucket account email (overrides config/env)
+- `--token` - Bitbucket API token (overrides config/env)
+- `--post` - Enable posting to Bitbucket when used with `--skip-inline` (default: false)
+- `--skip-inline` - Skip interactive confirmation prompt (non-interactive mode)
+- `--verbose`, `-v` - Enable verbose output (shows full diff and API details)
+- `--version` - Show version and exit
 
 
 ## Usage
 
-### Basic Usage (Preview Mode)
+### Basic Usage (Interactive Mode - Default)
 
 ```sh
 ./pullreview.exe
@@ -184,20 +192,24 @@ By default, `pullreview` will:
 - Fetch the PR diff from Bitbucket Cloud.
 - Load the review prompt from `prompt.md`, inject the PR diff, and send it to the configured LLM (e.g., OpenAI).
 - Print the parsed summary and all inline comments to the terminal.
-- **No comments are posted to Bitbucket unless you use the `--post` flag.**
+- **Prompt you to confirm before posting:** "Should I post this review to Bitbucket? [y/N]"
+  - Type `y` or `yes` to post comments
+  - Type `n`, `no`, or press Enter to cancel (default)
 
-### Post Comments to Bitbucket
+### Preview Mode (No Posting)
 
-To actually post the summary and inline comments to Bitbucket, use the `--post` flag:
+To review without posting and skip the prompt:
 
 ```sh
-./pullreview.exe --post
+./pullreview.exe --skip-inline
 ```
 
-or
+### Auto-Post Mode (Non-Interactive)
+
+To automatically post without prompting (useful for CI/CD):
 
 ```sh
-./pullreview.exe --post=true
+./pullreview.exe --post --skip-inline
 ```
 
 ### Specify a PR ID
@@ -217,11 +229,15 @@ or
 
 ---
 
-## The --post Flag
+## Flag Behavior Summary
 
-- `--post` (default: false):  
-  If set, posts the parsed summary and inline comments to Bitbucket.  
-  If not set, only prints the comments for review.
+| Command | Behavior |
+|---------|----------|
+| `pullreview` | Shows review, prompts for confirmation, posts if confirmed |
+| `pullreview --skip-inline` | Shows review only, no prompt, no posting |
+| `pullreview --post --skip-inline` | Shows review and auto-posts (no prompt) |
+| `pullreview --pr 123` | Review specific PR #123 |
+| `pullreview --verbose` | Show full diff and detailed API output |
 
 ---
 
