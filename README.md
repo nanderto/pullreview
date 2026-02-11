@@ -6,10 +6,10 @@ Usage example
 
 ```
 # Windows
-pullreview.exe --repo menuplanning-api --pr 89 --verbose
+pullreview.exe --repo bitbucket_repo_name --pr 89 --verbose
 
 # Linux
-./pullreview --repo menuplanning-api --pr 89 --verbose
+./pullreview --repo bitbucket_repo_name --pr 89 --verbose
 ```
 
 ---
