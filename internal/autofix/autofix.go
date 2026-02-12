@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -226,12 +227,19 @@ func (af *AutoFixer) generateFixes(
 		return nil, fmt.Errorf("LLM request failed: %w", err)
 	}
 
+	// Strip markdown code fences if present
+	jsonStr := extractJSON(response)
+
 	// Parse the JSON response
 	var fixResponse FixResponse
-	err = json.Unmarshal([]byte(response), &fixResponse)
+	err = json.Unmarshal([]byte(jsonStr), &fixResponse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse LLM response as JSON: %w\nResponse: %s", err, response)
 	}
+
+	// Validate and filter fixes
+	validFixes := af.validateFixes(fixResponse.Fixes)
+	fixResponse.Fixes = validFixes
 
 	if af.verbose {
 		fmt.Printf("LLM returned %d fix(es)\n", len(fixResponse.Fixes))
@@ -255,6 +263,22 @@ func (af *AutoFixer) applyAndVerify(fixes []Fix) (*verify.VerificationResult, er
 
 	if af.verbose {
 		fmt.Printf("Applied fixes to %d file(s): %v\n", len(modifiedFiles), modifiedFiles)
+	}
+
+	// Auto-format modified files before verification (if lint checking is enabled)
+	if af.config.VerifyLint {
+		if af.verbose {
+			fmt.Println("Auto-formatting modified files...")
+		}
+		if err := af.autoFormatFiles(modifiedFiles); err != nil {
+			if af.verbose {
+				fmt.Printf("Warning: auto-format failed: %v\n", err)
+			}
+			// Continue anyway - verification will catch format issues
+		}
+	}
+
+	if af.verbose {
 		fmt.Println("Running verification...")
 	}
 
@@ -278,25 +302,113 @@ func (af *AutoFixer) requestFixCorrection(
 		fmt.Println("Requesting fix correction from LLM...")
 	}
 
-	prompt := af.buildCorrectionPrompt(previousFix, verificationError, fileContents)
+	// Parse error messages to find files that have errors
+	errorFiles := af.parseErrorFiles(verificationError)
+
+	// Combine previously modified files with error files
+	allRelevantFiles := make(map[string]bool)
+
+	// Add all files from previous fix
+	for file := range fileContents {
+		allRelevantFiles[file] = true
+	}
+
+	// Add all files mentioned in errors
+	for _, file := range errorFiles {
+		allRelevantFiles[file] = true
+	}
+
+	if af.verbose && len(errorFiles) > 0 {
+		fmt.Printf("Found %d file(s) mentioned in errors: %v\n", len(errorFiles), errorFiles)
+	}
+
+	// Read contents of all relevant files
+	enhancedContents := make(map[string]string)
+	for file := range allRelevantFiles {
+		// Use existing content if we have it
+		if content, exists := fileContents[file]; exists {
+			enhancedContents[file] = content
+			continue
+		}
+
+		// Otherwise read from disk
+		fullPath := filepath.Join(af.repoPath, file)
+		content, err := os.ReadFile(fullPath)
+		if err != nil {
+			if af.verbose {
+				fmt.Printf("Warning: could not read %s: %v\n", file, err)
+			}
+			continue
+		}
+		enhancedContents[file] = string(content)
+	}
+
+	if af.verbose {
+		fmt.Printf("Providing %d file(s) to LLM for context\n", len(enhancedContents))
+	}
+
+	prompt := af.buildCorrectionPrompt(previousFix, verificationError, enhancedContents)
 
 	response, err := af.llmClient.SendFixPrompt(prompt)
 	if err != nil {
 		return nil, fmt.Errorf("LLM correction request failed: %w", err)
 	}
 
+	// Strip markdown code fences if present
+	jsonStr := extractJSON(response)
+
 	// Parse the JSON response
 	var fixResponse FixResponse
-	err = json.Unmarshal([]byte(response), &fixResponse)
+	err = json.Unmarshal([]byte(jsonStr), &fixResponse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse LLM correction response as JSON: %w\nResponse: %s", err, response)
 	}
+
+	// Validate and filter fixes
+	validFixes := af.validateFixes(fixResponse.Fixes)
+	fixResponse.Fixes = validFixes
 
 	if af.verbose {
 		fmt.Printf("LLM returned %d corrected fix(es)\n", len(fixResponse.Fixes))
 	}
 
 	return &fixResponse, nil
+}
+
+// validateFixes filters out invalid fixes and warns about them.
+func (af *AutoFixer) validateFixes(fixes []Fix) []Fix {
+	var valid []Fix
+
+	for _, fix := range fixes {
+		// Check required fields using getter methods (handles alternative field names)
+		originalCode := fix.GetOriginalCode()
+		fixedCode := fix.GetFixedCode()
+
+		if fix.File == "" {
+			if af.verbose {
+				fmt.Printf("Warning: skipping fix with no file specified\n")
+			}
+			continue
+		}
+
+		if originalCode == "" {
+			if af.verbose {
+				fmt.Printf("Warning: skipping fix for %s - no original_code provided\n", fix.File)
+			}
+			continue
+		}
+
+		if fixedCode == "" {
+			if af.verbose {
+				fmt.Printf("Warning: skipping fix for %s - no fixed_code provided\n", fix.File)
+			}
+			continue
+		}
+
+		valid = append(valid, fix)
+	}
+
+	return valid
 }
 
 // buildFixPrompt constructs the fix generation prompt.
@@ -409,22 +521,96 @@ func containsString(slice []string, value string) bool {
 	return false
 }
 
+// extractJSON extracts JSON from a response that may be wrapped in markdown code fences.
+// Handles responses like:
+//   - Plain JSON: {...}
+//   - Fenced: ```json\n{...}\n```
+//   - Text before fence: "Some explanation...\n```json\n{...}\n```"
+func extractJSON(response string) string {
+	response = strings.TrimSpace(response)
+
+	// Try to find JSON code fence anywhere in response
+	fenceStart := strings.Index(response, "```json")
+	if fenceStart == -1 {
+		fenceStart = strings.Index(response, "```\n{")
+	}
+
+	if fenceStart != -1 {
+		// Find the start of actual JSON content (after the fence line)
+		jsonStart := strings.Index(response[fenceStart:], "\n")
+		if jsonStart != -1 {
+			jsonStart += fenceStart + 1 // Move past the newline
+
+			// Find the closing fence
+			closeFence := strings.Index(response[jsonStart:], "\n```")
+			if closeFence != -1 {
+				return strings.TrimSpace(response[jsonStart : jsonStart+closeFence])
+			}
+			// No closing fence found, try to extract to end
+			lastFence := strings.LastIndex(response, "```")
+			if lastFence > jsonStart {
+				return strings.TrimSpace(response[jsonStart:lastFence])
+			}
+		}
+	}
+
+	// No fence found - try to find raw JSON object
+	jsonStart := strings.Index(response, "{")
+	if jsonStart != -1 {
+		// Find matching closing brace (simple approach - find last })
+		jsonEnd := strings.LastIndex(response, "}")
+		if jsonEnd > jsonStart {
+			return strings.TrimSpace(response[jsonStart : jsonEnd+1])
+		}
+	}
+
+	return response
+}
+
 // getDefaultFixPrompt returns a default fix generation prompt.
 func getDefaultFixPrompt() string {
 	return `# AUTO-FIX CODE GENERATION PROMPT
 
-Generate precise code fixes for the review issues below.
+You are a code fix generator. Generate precise code fixes for the review issues below.
 
-## REVIEW ISSUES
+## RULES
+1. Generate minimal, surgical fixes - change only what's necessary
+2. Preserve original code style and formatting
+3. Do NOT introduce new features or refactorings
+4. Each fix must directly address a review issue
+5. Fixes must be syntactically correct
+
+## OUTPUT FORMAT (MANDATORY)
+Respond with ONLY a JSON object (no markdown, no explanation). Use this exact structure:
+
+{
+  "fixes": [
+    {
+      "file": "relative/path/to/file.go",
+      "line_start": 45,
+      "line_end": 47,
+      "original_code": "the exact original code being replaced",
+      "fixed_code": "the corrected code",
+      "issue_addressed": "Brief description of the fix"
+    }
+  ],
+  "summary": "Brief summary of all fixes"
+}
+
+IMPORTANT:
+- line_start and line_end are 1-based line numbers
+- original_code must match the exact text in the file at those lines
+- fixed_code is what will replace original_code
+- For single-line fixes, line_start equals line_end
+
+## REVIEW ISSUES TO FIX
 {REVIEW_ISSUES}
 
-## DIFF
+## ORIGINAL DIFF
 {DIFF_CONTENT}
 
-## FILE CONTENTS
+## CURRENT FILE CONTENTS
 {FILE_CONTENTS}
-
-Respond with only a JSON object containing fixes.
 `
 }
 
@@ -432,18 +618,54 @@ Respond with only a JSON object containing fixes.
 func getDefaultCorrectionPrompt() string {
 	return `# FIX CORRECTION PROMPT
 
-Your previous fix caused an error. Please provide a corrected fix.
+Your previous fix caused build/test/lint errors. Analyze the errors and provide a corrected fix.
 
-## ERROR
+## ERROR OUTPUT
 {ERROR_OUTPUT}
 
-## PREVIOUS FIX
+## YOUR PREVIOUS FIX
 {PREVIOUS_FIX}
 
-## CURRENT FILE CONTENT
+## CURRENT FILE CONTENT (all relevant files provided below)
 {FILE_CONTENT}
 
-Respond with only a JSON object containing the corrected fix.
+## INSTRUCTIONS
+
+**CRITICAL**: The errors above may be in DIFFERENT files than what you modified. Carefully read:
+1. The ERROR OUTPUT to identify which files have problems
+2. The FILE CONTENT section which now includes ALL files mentioned in errors
+3. You may need to fix files you didn't modify in your previous attempt
+
+**COMMON SCENARIOS**:
+- Build errors in file A caused by changes in file B → Fix file A
+- Undefined function errors → The function exists, check imports or method receivers
+- Formatting errors → Ignore these (they will be auto-fixed)
+
+## OUTPUT FORMAT (MANDATORY - FOLLOW EXACTLY)
+Respond with ONLY a valid JSON object. No explanations, no markdown fences, just JSON:
+
+{
+  "fixes": [
+    {
+      "file": "relative/path/to/file.go",
+      "line_start": 45,
+      "line_end": 47,
+      "original_code": "REQUIRED: exact code from CURRENT FILE to replace",
+      "fixed_code": "the corrected replacement code",
+      "issue_addressed": "Brief description"
+    }
+  ],
+  "summary": "Brief summary"
+}
+
+CRITICAL REQUIREMENTS:
+1. Look at which FILE has the error - it may NOT be the file you modified before
+2. original_code is MANDATORY - copy the exact text from the CURRENT FILE CONTENT above
+3. original_code must match actual text in the file character-for-character (including indentation)
+4. fixed_code contains your fix for the error
+5. Every fix MUST have both original_code and fixed_code fields populated
+6. Return fixes for ALL files that need changes, not just the file you modified before
+7. If error is "undefined: X", X probably exists somewhere - check imports or package usage
 `
 }
 
@@ -578,4 +800,105 @@ func (af *AutoFixer) getAIExplanation(fixResult *FixResult) string {
 	}
 
 	return explanation
+}
+
+// parseErrorFiles extracts file paths from verification error messages.
+// Handles Go compiler/vet error formats like:
+//   - "cmd/pullreview/main.go:180:6: undefined: llm.SetVerbose"
+//   - "internal/bitbucket/client.go" (from gofmt)
+//   - "# pullreview/cmd/pullreview" (package header, skip)
+func (af *AutoFixer) parseErrorFiles(errorOutput string) []string {
+	fileSet := make(map[string]bool)
+	lines := strings.Split(errorOutput, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Skip package headers like "# pullreview/cmd/pullreview"
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Skip lines that are just error descriptions
+		if strings.Contains(line, "failed:") || strings.Contains(line, "check failed") {
+			continue
+		}
+
+		// Pattern 1: "file.go:line:col: error message"
+		if colonIdx := strings.Index(line, ":"); colonIdx > 0 {
+			filePath := line[:colonIdx]
+
+			// Check if this looks like a file path (contains .go or other extension)
+			if strings.Contains(filePath, ".go") ||
+				strings.Contains(filePath, ".py") ||
+				strings.Contains(filePath, ".js") ||
+				strings.Contains(filePath, ".ts") {
+				// Normalize path separators
+				filePath = filepath.ToSlash(filePath)
+				fileSet[filePath] = true
+				continue
+			}
+		}
+
+		// Pattern 2: Just a file path (from gofmt output)
+		// Example: "internal\bitbucket\client.go"
+		if strings.Contains(line, ".go") ||
+			strings.Contains(line, ".py") ||
+			strings.Contains(line, ".js") ||
+			strings.Contains(line, ".ts") {
+			// Check if it's a valid relative path (no spaces, no special chars)
+			if !strings.Contains(line, " ") && !strings.Contains(line, ":") {
+				// Normalize path separators
+				filePath := filepath.ToSlash(line)
+				fileSet[filePath] = true
+			}
+		}
+	}
+
+	// Convert set to slice
+	files := make([]string, 0, len(fileSet))
+	for file := range fileSet {
+		files = append(files, file)
+	}
+
+	return files
+}
+
+// autoFormatFiles runs gofmt on the specified files.
+func (af *AutoFixer) autoFormatFiles(files []string) error {
+	if len(files) == 0 {
+		return nil
+	}
+
+	// Run gofmt -s -w on each Go file
+	for _, file := range files {
+		// Only format Go files
+		if !strings.HasSuffix(file, ".go") {
+			continue
+		}
+
+		absPath := filepath.Join(af.repoPath, file)
+
+		if af.verbose {
+			fmt.Printf("  Formatting: %s\n", file)
+		}
+
+		// Execute gofmt
+		cmd := exec.Command("gofmt", "-s", "-w", absPath)
+		cmd.Dir = af.repoPath
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("gofmt failed for %s: %w\nOutput: %s", file, err, string(output))
+		}
+
+		if af.verbose && len(output) > 0 {
+			fmt.Printf("  gofmt output: %s\n", string(output))
+		}
+	}
+
+	return nil
 }
