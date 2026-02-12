@@ -220,6 +220,122 @@ or
 
 ---
 
+## Auto-Fix Usage
+
+The `pullreview` tool includes automated fix generation and application capabilities. After reviewing a PR, it can generate code fixes, apply them, verify they work, and create a stacked pull request with the fixes.
+
+### Apply Fixes to Current PR
+
+```sh
+# Auto-fix issues and create stacked PR
+./pullreview.exe fix-pr
+
+# Specify PR ID explicitly
+./pullreview.exe fix-pr --pr 123
+
+# Dry-run mode (apply fixes locally without committing)
+./pullreview.exe fix-pr --dry-run
+
+# Skip verification (dangerous - not recommended)
+./pullreview.exe fix-pr --skip-verification
+
+# Apply fixes without creating PR
+./pullreview.exe fix-pr --no-pr
+```
+
+### Auto-Fix Configuration
+
+Enable auto-fix in `pullreview.yaml`:
+
+```yaml
+autofix:
+  enabled: true
+  auto_create_pr: true
+  max_iterations: 5
+  verify_build: true
+  verify_tests: true
+  verify_lint: true
+  branch_prefix: pullreview-fixes
+  fix_prompt_file: prompts/fix_generation.md
+  commit_message_template: |
+    🤖 Auto-fix: {issue_summary}
+    
+    Iterations: {iteration_count}
+    Tests: {test_status}
+    Lint: {lint_status}
+  pr_title_template: "🤖 Auto-fixes for PR #{pr_id}: {original_title}"
+  pr_description_template: |
+    ## Auto-generated fixes for PR #{original_pr_id}
+    
+    **Original PR:** {original_pr_link}
+    **Issues Fixed:** {issue_count}
+    **Iterations Required:** {iteration_count}
+    
+    ### Changes Made:
+    {file_list}
+    
+    ### Build Verification:
+    - Build: {build_status}
+    - Tests: {test_status}
+    - Lint: {lint_status}
+    
+    ### AI Summary:
+    {ai_explanation}
+```
+
+### Pipeline Mode
+
+Auto-fix works seamlessly in CI/CD pipelines:
+
+```yaml
+# Bitbucket Pipelines example
+pipelines:
+  pull-requests:
+    '**':
+      - step:
+          name: Auto-fix PR
+          script:
+            - ./pullreview fix-pr
+```
+
+Pipeline mode is auto-detected and provides:
+- Verbose logging
+- Machine-readable JSON output
+- Non-zero exit codes on failure
+- No interactive prompts
+
+### How Auto-Fix Works
+
+1. **Review Generation:** Analyzes the PR and identifies issues
+2. **Fix Generation:** LLM generates code fixes for identified issues
+3. **Fix Application:** Applies fixes to local files
+4. **Verification:** Runs build/test/lint to verify fixes work
+5. **Iteration:** If verification fails, requests corrected fixes (up to max_iterations)
+6. **Git Operations:** Creates branch, commits, and pushes fixes
+7. **Stacked PR:** Creates a new PR targeting the original PR's branch
+
+### Example Auto-Fix Workflow
+
+```sh
+# Developer creates PR
+git checkout -b feature/add-logger
+git push origin feature/add-logger
+
+# PR created in Bitbucket
+
+# Auto-fix issues found in review
+cd /path/to/repo
+./pullreview fix-pr
+
+# Output:
+# 🔧 Auto-fixing PR #456...
+# 📝 Found 3 issue(s) to fix
+# ✅ Applied 3 fix(es) to 2 file(s)
+# ✅ Pushed fixes to branch: pullreview-fixes-feature-add-logger-20260212T153042Z
+# ✅ Stacked PR created: https://bitbucket.org/...
+
+# Developer reviews stacked PR, merges to their branch
+```
 
 ---
 

@@ -1,17 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	
 	"github.com/spf13/cobra"
 
+	"pullreview/internal/autofix"
 	"pullreview/internal/bitbucket"
-
 	"pullreview/internal/config"
+	"pullreview/internal/git"
 
 	"io/ioutil"
 	"pullreview/internal/llm"
@@ -56,6 +57,29 @@ func main() {
 	rootCmd.Flags().BoolVar(&showVersion, "version", false, "Show version and exit")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.Flags().BoolVar(&postToBB, "post", false, "Post comments to Bitbucket (default: false, just print comments)")
+
+	// Add fix-pr subcommand
+	fixPRCmd := &cobra.Command{
+		Use:   "fix-pr [flags]",
+		Short: "Auto-fix issues in a pull request and create stacked PR",
+		Long: `Fetches a Bitbucket Cloud PR, generates fixes using LLM, applies them,
+verifies build/test/lint, and creates a stacked pull request with the fixes.`,
+		RunE: runFixPR,
+	}
+
+	// Share some flags with root command
+	fixPRCmd.Flags().StringVarP(&cfgFile, "config", "c", defaultConfig, "Path to config file")
+	fixPRCmd.Flags().StringVar(&prID, "pr", "", "Bitbucket Pull Request ID (overrides branch inference)")
+	fixPRCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
+
+	// Auto-fix specific flags
+	fixPRCmd.Flags().Bool("dry-run", false, "Apply fixes locally without committing or creating PR")
+	fixPRCmd.Flags().Bool("skip-verification", false, "Skip build/test/lint verification (dangerous)")
+	fixPRCmd.Flags().Int("max-iterations", 0, "Maximum fix iterations (0 = use config default)")
+	fixPRCmd.Flags().String("branch-prefix", "", "Branch name prefix (default: from config)")
+	fixPRCmd.Flags().Bool("no-pr", false, "Don't create stacked PR (just fix locally)")
+
+	rootCmd.AddCommand(fixPRCmd)
 
 	cobra.OnInitialize(initConfig)
 
@@ -317,4 +341,318 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 		}(), finalPRID)
 
 	return nil
+}
+
+// runFixPR implements the fix-pr subcommand.
+func runFixPR(cmd *cobra.Command, args []string) error {
+	// Load configuration
+	cfg, err := config.LoadConfigWithOverrides(cfgFile, bbEmail, bbAPIToken)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Convert config to AutoFixConfig
+	autoFixCfg := &autofix.AutoFixConfig{
+		Enabled:               cfg.AutoFix.Enabled,
+		AutoCreatePR:          cfg.AutoFix.AutoCreatePR,
+		MaxIterations:         cfg.AutoFix.MaxIterations,
+		VerifyBuild:           cfg.AutoFix.VerifyBuild,
+		VerifyTests:           cfg.AutoFix.VerifyTests,
+		VerifyLint:            cfg.AutoFix.VerifyLint,
+		PipelineMode:          cfg.AutoFix.PipelineMode,
+		BranchPrefix:          cfg.AutoFix.BranchPrefix,
+		FixPromptFile:         cfg.AutoFix.FixPromptFile,
+		CommitMessageTemplate: cfg.AutoFix.CommitMessageTemplate,
+		PRTitleTemplate:       cfg.AutoFix.PRTitleTemplate,
+		PRDescriptionTemplate: cfg.AutoFix.PRDescriptionTemplate,
+	}
+
+	// Apply CLI flag overrides
+	if maxIter, _ := cmd.Flags().GetInt("max-iterations"); maxIter > 0 {
+		autoFixCfg.MaxIterations = maxIter
+	}
+
+	if prefix, _ := cmd.Flags().GetString("branch-prefix"); prefix != "" {
+		autoFixCfg.BranchPrefix = prefix
+	}
+
+	if skipVerify, _ := cmd.Flags().GetBool("skip-verification"); skipVerify {
+		autoFixCfg.VerifyBuild = false
+		autoFixCfg.VerifyTests = false
+		autoFixCfg.VerifyLint = false
+	}
+
+	if noPR, _ := cmd.Flags().GetBool("no-pr"); noPR {
+		autoFixCfg.AutoCreatePR = false
+	}
+
+	// Detect pipeline mode
+	if config.DetectPipelineMode() {
+		autoFixCfg.PipelineMode = true
+		verbose = true
+		fmt.Println("🤖 Pipeline mode detected")
+	}
+
+	// Validate configuration
+	if !autoFixCfg.Enabled && !cmd.Flags().Changed("dry-run") {
+		fmt.Fprintln(os.Stderr, "⚠️  AutoFix is disabled in config. Use --dry-run to override.")
+	}
+
+	// Get repo path
+	repoPath, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("could not determine working directory: %w", err)
+	}
+
+	// Initialize Bitbucket client
+	bbClient := bitbucket.NewClient(
+		cfg.Bitbucket.Email,
+		cfg.Bitbucket.APIToken,
+		cfg.Bitbucket.Workspace,
+		cfg.Bitbucket.RepoSlug,
+		cfg.Bitbucket.BaseURL,
+	)
+
+	if err := bbClient.Authenticate(); err != nil {
+		return fmt.Errorf("bitbucket authentication failed: %w", err)
+	}
+
+	// Initialize LLM client
+	llm.SetVerbose(verbose)
+	llmClient := llm.NewClient(cfg.LLM.Provider, cfg.LLM.APIKey, cfg.LLM.Endpoint)
+	llmClient.Model = cfg.LLM.Model
+
+	// Determine PR ID
+	finalPRID, err := determinePRID(prID, repoPath, bbClient)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("🔧 Auto-fixing PR #%s...\n", finalPRID)
+
+	// Fetch PR details
+	ctx := context.Background()
+	originalPR, err := bbClient.GetPullRequest(ctx, finalPRID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch PR: %w", err)
+	}
+
+	// Fetch PR diff
+	diff, err := bbClient.GetPRDiff(finalPRID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch PR diff: %w", err)
+	}
+
+	// Fetch review comments
+	reviewComments, err := getReviewComments(cfg, llmClient, finalPRID, diff)
+	if err != nil {
+		return fmt.Errorf("failed to generate review: %w", err)
+	}
+
+	if len(reviewComments) == 0 {
+		fmt.Println("✅ No issues found - nothing to fix!")
+		return nil
+	}
+
+	fmt.Printf("📝 Found %d issue(s) to fix\n", len(reviewComments))
+
+	// Initialize AutoFixer
+	autofixer := autofix.NewAutoFixer(autoFixCfg, llmClient, repoPath)
+	autofixer.SetVerbose(verbose)
+	autofixer.SetBitbucketClient(bbClient)
+
+	// Get file contents for context
+	fileContents, err := getFileContents(repoPath, reviewComments)
+	if err != nil {
+		return fmt.Errorf("failed to read file contents: %w", err)
+	}
+
+	// Apply fixes
+	fixResult, err := autofixer.GenerateAndApplyFixes(ctx, reviewComments, diff, fileContents)
+	if err != nil {
+		return fmt.Errorf("fix generation failed: %w", err)
+	}
+
+	if !fixResult.Success {
+		fmt.Fprintln(os.Stderr, "❌ Fixes failed verification")
+		for _, errMsg := range fixResult.ErrorMessages {
+			fmt.Fprintf(os.Stderr, "  - %s\n", errMsg)
+		}
+		if autoFixCfg.PipelineMode {
+			os.Exit(1)
+		}
+		return fmt.Errorf("fixes did not pass verification")
+	}
+
+	fmt.Printf("✅ Applied %d fix(es) to %d file(s)\n", fixResult.FixesApplied, len(fixResult.FilesChanged))
+
+	// Check if dry-run
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	if dryRun {
+		fmt.Println("🏁 Dry-run mode: Fixes applied locally. Review changes with 'git diff'")
+		return nil
+	}
+
+	// Create branch, commit, push
+	gitOps := git.NewOperations(repoPath)
+	currentBranch, err := gitOps.GetCurrentBranch()
+	if err != nil {
+		return fmt.Errorf("failed to get current branch: %w", err)
+	}
+
+	fixBranch := gitOps.GenerateBranchName(currentBranch, autoFixCfg.BranchPrefix)
+
+	if err := gitOps.CreateBranch(fixBranch); err != nil {
+		return fmt.Errorf("failed to create fix branch: %w", err)
+	}
+
+	if err := gitOps.StageFiles(fixResult.FilesChanged); err != nil {
+		return fmt.Errorf("failed to stage files: %w", err)
+	}
+
+	commitMsg := buildCommitMessage(autoFixCfg.CommitMessageTemplate, fixResult)
+	if err := gitOps.Commit(commitMsg); err != nil {
+		return fmt.Errorf("failed to commit fixes: %w", err)
+	}
+
+	if err := gitOps.Push(fixBranch); err != nil {
+		return fmt.Errorf("failed to push fix branch: %w", err)
+	}
+
+	fmt.Printf("✅ Pushed fixes to branch: %s\n", fixBranch)
+
+	// Create stacked PR if enabled
+	if autoFixCfg.AutoCreatePR {
+		err := autofixer.CreateStackedPR(ctx, fixBranch, originalPR, fixResult)
+		if err != nil {
+			return fmt.Errorf("failed to create stacked PR: %w", err)
+		}
+
+		fmt.Printf("✅ Stacked PR created: %s\n", fixResult.PRURL)
+	} else {
+		fmt.Println("ℹ️  Stacked PR creation disabled. Push branch manually if needed.")
+	}
+
+	// Output summary
+	printFixSummary(fixResult, autoFixCfg.PipelineMode)
+
+	return nil
+}
+
+// determinePRID resolves the PR ID from CLI arg or git branch.
+func determinePRID(cliPRID, repoPath string, bbClient *bitbucket.Client) (string, error) {
+	if cliPRID != "" {
+		return cliPRID, nil
+	}
+
+	branch, err := utils.GetCurrentGitBranch(repoPath)
+	if err != nil {
+		return "", fmt.Errorf("could not infer git branch: %w", err)
+	}
+
+	prID, err := bbClient.GetPRIDByBranch(branch)
+	if err != nil {
+		return "", fmt.Errorf("could not find open PR for branch %q: %w", branch, err)
+	}
+
+	return prID, nil
+}
+
+// buildCommitMessage generates commit message from template.
+func buildCommitMessage(template string, fixResult *autofix.FixResult) string {
+	msg := template
+	msg = strings.ReplaceAll(msg, "{issue_summary}", fmt.Sprintf("Applied %d fix(es)", fixResult.FixesApplied))
+	msg = strings.ReplaceAll(msg, "{iteration_count}", fmt.Sprintf("%d", fixResult.Iterations))
+	msg = strings.ReplaceAll(msg, "{test_status}", fixResult.TestStatus)
+	msg = strings.ReplaceAll(msg, "{lint_status}", fixResult.LintStatus)
+	return msg
+}
+
+// printFixSummary outputs a summary of the fix operation.
+func printFixSummary(fixResult *autofix.FixResult, pipelineMode bool) {
+	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println("FIX SUMMARY")
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Printf("Fixes Applied:  %d\n", fixResult.FixesApplied)
+	fmt.Printf("Files Changed:  %d\n", len(fixResult.FilesChanged))
+	fmt.Printf("Iterations:     %d\n", fixResult.Iterations)
+	fmt.Printf("Build Status:   %s\n", fixResult.BuildStatus)
+	fmt.Printf("Test Status:    %s\n", fixResult.TestStatus)
+	fmt.Printf("Lint Status:    %s\n", fixResult.LintStatus)
+
+	if fixResult.PRCreated {
+		fmt.Printf("Stacked PR:     %s\n", fixResult.PRURL)
+	}
+
+	fmt.Println(strings.Repeat("=", 60))
+
+	// Machine-readable output for CI/CD
+	if pipelineMode {
+		output := map[string]interface{}{
+			"success":       fixResult.Success,
+			"fixes_applied": fixResult.FixesApplied,
+			"files_changed": fixResult.FilesChanged,
+			"iterations":    fixResult.Iterations,
+			"pr_url":        fixResult.PRURL,
+			"pr_number":     fixResult.PRNumber,
+			"branch_name":   fixResult.BranchName,
+		}
+		jsonBytes, _ := json.MarshalIndent(output, "", "  ")
+		fmt.Println("\nMACHINE_READABLE_OUTPUT:")
+		fmt.Println(string(jsonBytes))
+	}
+}
+
+// getFileContents reads file contents for review context.
+func getFileContents(repoPath string, comments []review.Comment) (map[string]string, error) {
+	contents := make(map[string]string)
+
+	for _, comment := range comments {
+		if _, exists := contents[comment.FilePath]; exists {
+			continue
+		}
+
+		fullPath := filepath.Join(repoPath, comment.FilePath)
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read %s: %w", comment.FilePath, err)
+		}
+
+		contents[comment.FilePath] = string(data)
+	}
+
+	return contents, nil
+}
+
+// getReviewComments generates review comments using LLM.
+func getReviewComments(cfg *config.Config, llmClient *llm.Client, prID, diff string) ([]review.Comment, error) {
+	// Resolve prompt file path relative to config file location if not absolute
+	promptPath := cfg.PromptFile
+	if !filepath.IsAbs(promptPath) && cfgFile != "" {
+		cfgDir := filepath.Dir(cfgFile)
+		promptPath = filepath.Join(cfgDir, promptPath)
+	}
+
+	// Read prompt template
+	promptData, err := os.ReadFile(promptPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read prompt file: %w", err)
+	}
+
+	prompt := strings.ReplaceAll(string(promptData), "(DIFF_CONTENT_HERE)", diff)
+
+	// Send to LLM
+	response, err := llmClient.SendReviewPrompt(prompt)
+	if err != nil {
+		return nil, fmt.Errorf("LLM request failed: %w", err)
+	}
+
+	// Parse review comments
+	r := review.NewReview(prID, diff)
+	if err := r.ParseDiff(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to parse diff for comment mapping: %v\n", err)
+	}
+	r.ParseLLMResponse(response)
+
+	return r.Comments, nil
 }

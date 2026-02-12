@@ -262,3 +262,136 @@ prompt_file: prompt.md
 		t.Errorf("expected env override base_url 'https://custom.bitbucket.org/api', got '%s'", cfg.Bitbucket.BaseURL)
 	}
 }
+
+// TestDetectPipelineMode tests pipeline mode detection.
+func TestDetectPipelineMode(t *testing.T) {
+	// Clear all CI env vars
+	ciEnvVars := []string{
+		"CI", "BITBUCKET_PIPELINE", "GITHUB_ACTIONS", "GITLAB_CI",
+		"JENKINS_HOME", "CIRCLECI", "TRAVIS", "AZURE_PIPELINES",
+		"BUDDY_WORKSPACE_ID", "TEAMCITY_VERSION",
+	}
+	for _, env := range ciEnvVars {
+		os.Unsetenv(env)
+	}
+
+	// Not in pipeline mode
+	if DetectPipelineMode() {
+		t.Error("expected DetectPipelineMode()=false with no CI env vars")
+	}
+
+	// Set CI env var
+	os.Setenv("CI", "true")
+	defer os.Unsetenv("CI")
+
+	if !DetectPipelineMode() {
+		t.Error("expected DetectPipelineMode()=true with CI=true")
+	}
+}
+
+// TestAutoFixConfig tests AutoFix configuration loading.
+func TestAutoFixConfig(t *testing.T) {
+	os.Unsetenv("BITBUCKET_EMAIL")
+	os.Unsetenv("BITBUCKET_API_TOKEN")
+	os.Unsetenv("BITBUCKET_WORKSPACE")
+	os.Unsetenv("LLM_PROVIDER")
+	os.Unsetenv("LLM_API_KEY")
+
+	yaml := `
+bitbucket:
+  email: user@example.com
+  api_token: token1
+  workspace: ws1
+llm:
+  provider: openai
+  api_key: key1
+  endpoint: https://api.openai.com/v1
+prompt_file: prompt.md
+autofix:
+  enabled: true
+  auto_create_pr: true
+  max_iterations: 10
+  verify_build: true
+  verify_tests: true
+  verify_lint: false
+  pipeline_mode: false
+  branch_prefix: fix-branch
+  fix_prompt_file: prompts/fix.md
+  commit_message_template: "Fix: {issue_summary}"
+  pr_title_template: "Auto-fix PR #{pr_id}"
+  pr_description_template: "Fixed issues"
+`
+	cfgFile := writeTempConfigFile(t, yaml)
+	cfg, err := LoadConfigWithOverrides(cfgFile, "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !cfg.AutoFix.Enabled {
+		t.Error("expected autofix.enabled=true")
+	}
+	if !cfg.AutoFix.AutoCreatePR {
+		t.Error("expected autofix.auto_create_pr=true")
+	}
+	if cfg.AutoFix.MaxIterations != 10 {
+		t.Errorf("expected autofix.max_iterations=10, got %d", cfg.AutoFix.MaxIterations)
+	}
+	if !cfg.AutoFix.VerifyBuild {
+		t.Error("expected autofix.verify_build=true")
+	}
+	if !cfg.AutoFix.VerifyTests {
+		t.Error("expected autofix.verify_tests=true")
+	}
+	if cfg.AutoFix.VerifyLint {
+		t.Error("expected autofix.verify_lint=false")
+	}
+	if cfg.AutoFix.BranchPrefix != "fix-branch" {
+		t.Errorf("expected autofix.branch_prefix=fix-branch, got %q", cfg.AutoFix.BranchPrefix)
+	}
+	if cfg.AutoFix.FixPromptFile != "prompts/fix.md" {
+		t.Errorf("expected autofix.fix_prompt_file=prompts/fix.md, got %q", cfg.AutoFix.FixPromptFile)
+	}
+	if cfg.AutoFix.CommitMessageTemplate != "Fix: {issue_summary}" {
+		t.Errorf("expected commit template, got %q", cfg.AutoFix.CommitMessageTemplate)
+	}
+	if cfg.AutoFix.PRTitleTemplate != "Auto-fix PR #{pr_id}" {
+		t.Errorf("expected PR title template, got %q", cfg.AutoFix.PRTitleTemplate)
+	}
+	if cfg.AutoFix.PRDescriptionTemplate != "Fixed issues" {
+		t.Errorf("expected PR description template, got %q", cfg.AutoFix.PRDescriptionTemplate)
+	}
+}
+
+// TestAutoFixConfigDefaults tests that missing autofix config doesn't break loading.
+func TestAutoFixConfigDefaults(t *testing.T) {
+	os.Unsetenv("BITBUCKET_EMAIL")
+	os.Unsetenv("BITBUCKET_API_TOKEN")
+	os.Unsetenv("BITBUCKET_WORKSPACE")
+	os.Unsetenv("LLM_PROVIDER")
+	os.Unsetenv("LLM_API_KEY")
+
+	yaml := `
+bitbucket:
+  email: user@example.com
+  api_token: token1
+  workspace: ws1
+llm:
+  provider: openai
+  api_key: key1
+  endpoint: https://api.openai.com/v1
+prompt_file: prompt.md
+`
+	cfgFile := writeTempConfigFile(t, yaml)
+	cfg, err := LoadConfigWithOverrides(cfgFile, "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// AutoFix section should exist but be empty/defaults
+	if cfg.AutoFix.Enabled {
+		t.Error("expected autofix.enabled=false by default")
+	}
+	if cfg.AutoFix.MaxIterations != 0 {
+		t.Errorf("expected autofix.max_iterations=0 by default, got %d", cfg.AutoFix.MaxIterations)
+	}
+}

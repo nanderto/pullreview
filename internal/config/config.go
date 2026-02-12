@@ -38,6 +38,21 @@ type Config struct {
 
 	PromptFile string `yaml:"prompt_file"` // Path to the prompt template file
 
+	// AutoFix configuration
+	AutoFix struct {
+		Enabled               bool   `yaml:"enabled"`
+		AutoCreatePR          bool   `yaml:"auto_create_pr"`
+		MaxIterations         int    `yaml:"max_iterations"`
+		VerifyBuild           bool   `yaml:"verify_build"`
+		VerifyTests           bool   `yaml:"verify_tests"`
+		VerifyLint            bool   `yaml:"verify_lint"`
+		PipelineMode          bool   `yaml:"pipeline_mode"`
+		BranchPrefix          string `yaml:"branch_prefix"`
+		FixPromptFile         string `yaml:"fix_prompt_file"`
+		CommitMessageTemplate string `yaml:"commit_message_template"`
+		PRTitleTemplate       string `yaml:"pr_title_template"`
+		PRDescriptionTemplate string `yaml:"pr_description_template"`
+	} `yaml:"autofix"`
 }
 
 // LoadConfigWithOverrides loads configuration from a YAML file, then applies overrides from
@@ -172,4 +187,28 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken string) (*Config, error) {
 // inferRepoSlug tries to infer the Bitbucket repo slug from the git remote URL.
 func inferRepoSlug(repoPath string) (string, error) {
 	return utils.GetRepoSlugFromGitRemote(repoPath)
+}
+
+// DetectPipelineMode checks environment variables to determine if running in CI/CD.
+func DetectPipelineMode() bool {
+	ciEnvVars := []string{
+		"CI",                 // Generic CI indicator
+		"BITBUCKET_PIPELINE", // Bitbucket Pipelines
+		"GITHUB_ACTIONS",     // GitHub Actions
+		"GITLAB_CI",          // GitLab CI
+		"JENKINS_HOME",       // Jenkins
+		"CIRCLECI",           // CircleCI
+		"TRAVIS",             // Travis CI
+		"AZURE_PIPELINES",    // Azure Pipelines
+		"BUDDY_WORKSPACE_ID", // Buddy
+		"TEAMCITY_VERSION",   // TeamCity
+	}
+
+	for _, envVar := range ciEnvVars {
+		if os.Getenv(envVar) != "" {
+			return true
+		}
+	}
+
+	return false
 }
