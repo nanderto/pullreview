@@ -2,11 +2,13 @@ package bitbucket
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 )
 
 // PRComment represents a comment to be posted to a PR.
@@ -250,4 +252,321 @@ func (c *Client) GetPRDiff(prID string) (string, error) {
 		return "", fmt.Errorf("failed to read PR diff: %w", err)
 	}
 	return string(diffBytes), nil
+}
+
+// PullRequest represents a Bitbucket pull request.
+type PullRequest struct {
+	ID           int    `json:"id"`
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	State        string `json:"state"`
+	SourceBranch string
+	DestBranch   string
+	Author       string
+	Links        struct {
+		HTML struct {
+			Href string `json:"href"`
+		} `json:"html"`
+	} `json:"links"`
+}
+
+// CreatePullRequestRequest represents a PR creation request.
+type CreatePullRequestRequest struct {
+	Title             string
+	Description       string
+	SourceBranch      string
+	DestinationBranch string
+	CloseSourceBranch bool
+	Reviewers         []string // Optional: usernames to add as reviewers
+}
+
+// CreatePullRequestResponse represents the API response for PR creation.
+type CreatePullRequestResponse struct {
+	ID    int    `json:"id"`
+	Title string `json:"title"`
+	State string `json:"state"`
+	Links struct {
+		HTML struct {
+			Href string `json:"href"`
+		} `json:"html"`
+	} `json:"links"`
+}
+
+// CreatePullRequest creates a new pull request in Bitbucket.
+// Creates a stacked PR targeting the specified destination branch.
+func (c *Client) CreatePullRequest(ctx context.Context, req CreatePullRequestRequest) (*CreatePullRequestResponse, error) {
+	if req.Title == "" {
+		return nil, errors.New("PR title is required")
+	}
+	if req.SourceBranch == "" {
+		return nil, errors.New("source branch is required")
+	}
+	if req.DestinationBranch == "" {
+		return nil, errors.New("destination branch is required")
+	}
+
+	url := fmt.Sprintf("%s/repositories/%s/%s/pullrequests", c.BaseURL, c.Workspace, c.RepoSlug)
+
+	// Build request body
+	body := map[string]interface{}{
+		"title":       req.Title,
+		"description": req.Description,
+		"source": map[string]interface{}{
+			"branch": map[string]string{
+				"name": req.SourceBranch,
+			},
+		},
+		"destination": map[string]interface{}{
+			"branch": map[string]string{
+				"name": req.DestinationBranch,
+			},
+		},
+		"close_source_branch": req.CloseSourceBranch,
+	}
+
+	// Add reviewers if provided
+	if len(req.Reviewers) > 0 {
+		reviewers := make([]map[string]string, 0, len(req.Reviewers))
+		for _, username := range req.Reviewers {
+			reviewers = append(reviewers, map[string]string{"username": username})
+		}
+		body["reviewers"] = reviewers
+	}
+
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal PR request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PR request: %w", err)
+	}
+
+	httpReq.SetBasicAuth(c.Email, c.APIToken)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PR: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("failed to create PR: status %d, response: %s", resp.StatusCode, string(respBody))
+	}
+
+	var prResp CreatePullRequestResponse
+	if err := json.Unmarshal(respBody, &prResp); err != nil {
+		return nil, fmt.Errorf("failed to decode PR response: %w", err)
+	}
+
+	return &prResp, nil
+}
+
+// GetFileContent fetches the content of a file from a specific branch.
+// Used to read current file contents after fixes are applied.
+func (c *Client) GetFileContent(ctx context.Context, branch string, filePath string) (string, error) {
+	if branch == "" {
+		return "", errors.New("branch name is required")
+	}
+	if filePath == "" {
+		return "", errors.New("file path is required")
+	}
+
+	// URL encode the file path
+	encodedPath := url.PathEscape(filePath)
+	url := fmt.Sprintf("%s/repositories/%s/%s/src/%s/%s", c.BaseURL, c.Workspace, c.RepoSlug, branch, encodedPath)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create file content request: %w", err)
+	}
+
+	httpReq.SetBasicAuth(c.Email, c.APIToken)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch file content: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "", fmt.Errorf("file not found: %s on branch %s", filePath, branch)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to fetch file content: status %d, response: %s", resp.StatusCode, string(body))
+	}
+
+	contentBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file content: %w", err)
+	}
+
+	return string(contentBytes), nil
+}
+
+// BranchExists checks if a branch exists in the remote repository.
+func (c *Client) BranchExists(ctx context.Context, branchName string) (bool, error) {
+	if branchName == "" {
+		return false, errors.New("branch name is required")
+	}
+
+	url := fmt.Sprintf("%s/repositories/%s/%s/refs/branches/%s", c.BaseURL, c.Workspace, c.RepoSlug, branchName)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create branch check request: %w", err)
+	}
+
+	httpReq.SetBasicAuth(c.Email, c.APIToken)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return false, fmt.Errorf("failed to check branch existence: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return true, nil
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	return false, fmt.Errorf("unexpected response checking branch: status %d, response: %s", resp.StatusCode, string(body))
+}
+
+// GetPullRequestByBranch finds a PR by its source branch name.
+// Returns nil if no PR found.
+func (c *Client) GetPullRequestByBranch(ctx context.Context, sourceBranch string) (*PullRequest, error) {
+	if sourceBranch == "" {
+		return nil, errors.New("source branch is required")
+	}
+
+	url := fmt.Sprintf("%s/repositories/%s/%s/pullrequests?q=source.branch.name=\"%s\"",
+		c.BaseURL, c.Workspace, c.RepoSlug, sourceBranch)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PR search request: %w", err)
+	}
+
+	httpReq.SetBasicAuth(c.Email, c.APIToken)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search for PR: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to search for PR: status %d, response: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Values []PullRequest `json:"values"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode PR search response: %w", err)
+	}
+
+	if len(result.Values) == 0 {
+		return nil, nil
+	}
+
+	// Return first matching PR
+	return &result.Values[0], nil
+}
+
+// GetPullRequest fetches full PR details by PR ID.
+func (c *Client) GetPullRequest(ctx context.Context, prID string) (*PullRequest, error) {
+	if prID == "" {
+		return nil, errors.New("PR ID is required")
+	}
+
+	url := fmt.Sprintf("%s/repositories/%s/%s/pullrequests/%s", c.BaseURL, c.Workspace, c.RepoSlug, prID)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PR request: %w", err)
+	}
+
+	httpReq.SetBasicAuth(c.Email, c.APIToken)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch PR: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to fetch PR: status %d, response: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode PR response: %w", err)
+	}
+
+	pr := &PullRequest{}
+
+	// Extract fields safely
+	if id, ok := result["id"].(float64); ok {
+		pr.ID = int(id)
+	}
+	if title, ok := result["title"].(string); ok {
+		pr.Title = title
+	}
+	if desc, ok := result["description"].(string); ok {
+		pr.Description = desc
+	}
+	if state, ok := result["state"].(string); ok {
+		pr.State = state
+	}
+
+	// Extract source branch
+	if source, ok := result["source"].(map[string]interface{}); ok {
+		if branch, ok := source["branch"].(map[string]interface{}); ok {
+			if name, ok := branch["name"].(string); ok {
+				pr.SourceBranch = name
+			}
+		}
+	}
+
+	// Extract destination branch
+	if dest, ok := result["destination"].(map[string]interface{}); ok {
+		if branch, ok := dest["branch"].(map[string]interface{}); ok {
+			if name, ok := branch["name"].(string); ok {
+				pr.DestBranch = name
+			}
+		}
+	}
+
+	// Extract author
+	if author, ok := result["author"].(map[string]interface{}); ok {
+		if displayName, ok := author["display_name"].(string); ok {
+			pr.Author = displayName
+		}
+	}
+
+	// Extract links
+	if links, ok := result["links"].(map[string]interface{}); ok {
+		if html, ok := links["html"].(map[string]interface{}); ok {
+			if href, ok := html["href"].(string); ok {
+				pr.Links.HTML.Href = href
+			}
+		}
+	}
+
+	return pr, nil
 }
