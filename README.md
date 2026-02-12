@@ -227,8 +227,11 @@ The `pullreview` tool includes automated fix generation and application capabili
 ### Apply Fixes to Current PR
 
 ```sh
-# Auto-fix issues and create stacked PR
+# Auto-fix issues and create stacked PR (uses existing PR comments)
 ./pullreview.exe fix-pr
+
+# Generate new review instead of using existing comments
+./pullreview.exe fix-pr --regenerate
 
 # Specify PR ID explicitly
 ./pullreview.exe fix-pr --pr 123
@@ -242,6 +245,8 @@ The `pullreview` tool includes automated fix generation and application capabili
 # Apply fixes without creating PR
 ./pullreview.exe fix-pr --no-pr
 ```
+
+**Note:** By default, `fix-pr` fetches existing review comments from the Bitbucket PR, ensuring deterministic fixes for the same issues that were reviewed. Use `--regenerate` if you want to generate a fresh review instead (may produce different issues).
 
 ### Auto-Fix Configuration
 
