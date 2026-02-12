@@ -223,6 +223,62 @@ func (c *Client) GetPRMetadata(prID string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+// GetPRComments fetches all comments for a given PR ID.
+// Returns a slice of BitbucketComment structs, or an error.
+func (c *Client) GetPRComments(prID string) ([]BitbucketComment, error) {
+	if prID == "" {
+		return nil, errors.New("PR ID is required")
+	}
+	if c.RepoSlug == "" {
+		return nil, errors.New("repo slug is required")
+	}
+
+	url := fmt.Sprintf("%s/repositories/%s/%s/pullrequests/%s/comments", c.BaseURL, c.Workspace, c.RepoSlug, prID)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PR comments request: %w", err)
+	}
+	req.SetBasicAuth(c.Email, c.APIToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to contact Bitbucket API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to fetch PR comments: status %d, response: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read PR comments response: %w", err)
+	}
+
+	var response struct {
+		Values []BitbucketComment `json:"values"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse PR comments: %w", err)
+	}
+
+	return response.Values, nil
+}
+
+// BitbucketComment represents a comment from the Bitbucket API.
+type BitbucketComment struct {
+	ID      int                    `json:"id"`
+	Content map[string]interface{} `json:"content"`
+	Inline  *struct {
+		Path string `json:"path"`
+		To   int    `json:"to"`
+	} `json:"inline"`
+	User struct {
+		DisplayName string `json:"display_name"`
+		Nickname    string `json:"nickname"`
+	} `json:"user"`
+}
+
 // GetPRDiff fetches the unified diff for a given PR ID.
 // Returns the diff as a string, or an error.
 func (c *Client) GetPRDiff(prID string) (string, error) {

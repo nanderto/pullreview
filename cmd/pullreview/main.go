@@ -78,6 +78,7 @@ verifies build/test/lint, and creates a stacked pull request with the fixes.`,
 	fixPRCmd.Flags().Int("max-iterations", 0, "Maximum fix iterations (0 = use config default)")
 	fixPRCmd.Flags().String("branch-prefix", "", "Branch name prefix (default: from config)")
 	fixPRCmd.Flags().Bool("no-pr", false, "Don't create stacked PR (just fix locally)")
+	fixPRCmd.Flags().Bool("regenerate", false, "Generate new review instead of using existing comments")
 
 	rootCmd.AddCommand(fixPRCmd)
 
@@ -443,18 +444,41 @@ func runFixPR(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to fetch PR diff: %w", err)
 	}
 
-	// Fetch review comments
-	reviewComments, err := getReviewComments(cfg, llmClient, finalPRID, diff)
-	if err != nil {
-		return fmt.Errorf("failed to generate review: %w", err)
+	var reviewComments []review.Comment
+
+	// Check if we should regenerate review or use existing comments
+	regenerate, _ := cmd.Flags().GetBool("regenerate")
+
+	if regenerate {
+		// Generate new review comments
+		fmt.Println("🤖 Generating new review comments...")
+		reviewComments, err = getReviewComments(cfg, llmClient, finalPRID, diff)
+		if err != nil {
+			return fmt.Errorf("failed to generate review: %w", err)
+		}
+	} else {
+		// Fetch existing review comments from Bitbucket
+		fmt.Println("📥 Fetching existing review comments from Bitbucket...")
+		bbComments, err := bbClient.GetPRComments(finalPRID)
+		if err != nil {
+			return fmt.Errorf("failed to fetch PR comments: %w", err)
+		}
+
+		// Convert Bitbucket comments to review.Comment format
+		reviewComments = convertBitbucketCommentsToReviewComments(bbComments)
 	}
 
 	if len(reviewComments) == 0 {
-		fmt.Println("✅ No issues found - nothing to fix!")
+		if regenerate {
+			fmt.Println("✅ No issues found - nothing to fix!")
+		} else {
+			fmt.Println("✅ No existing review comments found - nothing to fix!")
+			fmt.Println("💡 Tip: Use --regenerate to generate a new review instead")
+		}
 		return nil
 	}
 
-	fmt.Printf("📝 Found %d issue(s) to fix\n", len(reviewComments))
+	fmt.Printf("📝 Found %d comment(s) to fix\n", len(reviewComments))
 
 	// Initialize AutoFixer
 	autofixer := autofix.NewAutoFixer(autoFixCfg, llmClient, repoPath)
@@ -655,4 +679,36 @@ func getReviewComments(cfg *config.Config, llmClient *llm.Client, prID, diff str
 	r.ParseLLMResponse(response)
 
 	return r.Comments, nil
+}
+
+// convertBitbucketCommentsToReviewComments converts Bitbucket API comments to review.Comment format.
+func convertBitbucketCommentsToReviewComments(bbComments []bitbucket.BitbucketComment) []review.Comment {
+	var comments []review.Comment
+
+	for _, bbComment := range bbComments {
+		// Extract the raw text content
+		var text string
+		if content, ok := bbComment.Content["raw"].(string); ok {
+			text = content
+		} else {
+			continue // Skip if no text content
+		}
+
+		comment := review.Comment{
+			Text: text,
+		}
+
+		// Check if it's an inline comment
+		if bbComment.Inline != nil && bbComment.Inline.Path != "" {
+			comment.FilePath = bbComment.Inline.Path
+			comment.Line = bbComment.Inline.To
+		} else {
+			// Top-level comment - skip for auto-fix (only fix inline comments)
+			continue
+		}
+
+		comments = append(comments, comment)
+	}
+
+	return comments
 }
