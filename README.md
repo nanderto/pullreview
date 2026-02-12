@@ -261,7 +261,7 @@ autofix:
   verify_tests: true
   verify_lint: true
   branch_prefix: pullreview-fixes
-  fix_prompt_file: prompts/fix_generation.md
+  fix_prompt_file: fix_prompt.md
   commit_message_template: |
     🤖 Auto-fix: {issue_summary}
     
