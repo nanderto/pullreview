@@ -42,6 +42,7 @@ func DetectLanguages(repoPath string) ([]string, error) {
 		"rust":       {name: "rust"},
 		"ruby":       {name: "ruby"},
 		"php":        {name: "php"},
+		"csharp":     {name: "csharp"},
 	}
 
 	// Walk the repository
@@ -155,6 +156,12 @@ func checkConfigFile(filename string, fullPath string, languages map[string]*lan
 	case "composer.json":
 		languages["php"].hasConfigFile = true
 	}
+	
+	// Check for C# project files (case-insensitive)
+	if strings.HasSuffix(strings.ToLower(filename), ".csproj") ||
+		strings.HasSuffix(strings.ToLower(filename), ".sln") {
+		languages["csharp"].hasConfigFile = true
+	}
 }
 
 // hasTypeScriptDependency checks if package.json contains TypeScript.
@@ -187,6 +194,8 @@ func countFileExtension(ext string, languages map[string]*languageInfo) {
 		languages["ruby"].fileCount++
 	case ".php":
 		languages["php"].fileCount++
+	case ".cs":
+		languages["csharp"].fileCount++
 	}
 }
 
