@@ -78,22 +78,36 @@ This document tracks which commands and flags have been tested.
 ## 📊 RECENT TEST RESULTS
 
 ### bhunter PR #8 (2026-02-14)
+- **Language**: C#
 - **Command**: `pullreview fix-pr -v`
 - **Workflow**: Fix existing comments
 - **Result**: ✅ SUCCESS
-- **Details**: 1 comment → 1 fix → build passed → PR #9 created
+- **Details**: 1 comment → 1 fix → dotnet build passed → PR #9 created
+- **Verification**: Build only (tests skipped per config)
 
 ### bhunter PR #6 (2026-02-14)
+- **Language**: C#
 - **Command**: `pullreview fix-pr --post -v`
-- **Workflow**: Combined autofix with posting
+- **Workflow**: Combined autofix with posting (ONE LLM call)
 - **Result**: ✅ SUCCESS
-- **Details**: 1 issue + 1 fix in ONE call → comment posted → PR #7 created
+- **Details**: 1 issue + 1 fix in ONE call → comment posted → dotnet build passed → PR #7 created
+- **Verification**: Build only (tests skipped per config)
 
 ### menuplanning-api PR #89 (2026-02-14)
+- **Language**: C#
 - **Command**: `pullreview fix-pr --post -v`
 - **Workflow**: Fix existing comments with posting
 - **Result**: ✅ SUCCESS
-- **Details**: 5 comments → 1 fix → build passed → PR #92 created
+- **Details**: 5 comments → 1 fix → dotnet build passed → PR #92 created
+- **Verification**: Build only (tests skipped per config)
+
+### menuplanning-api PR #89 - Earlier Test (2026-02-13)
+- **Language**: C#
+- **Command**: `pullreview fix-pr --skip-verification -v`
+- **Workflow**: Fix existing comments
+- **Result**: ✅ SUCCESS
+- **Details**: 3 comments → 1 fix → verification skipped → PR #91 created
+- **Verification**: Skipped via flag
 
 ---
 
