@@ -75,39 +75,70 @@ This document tracks which commands and flags have been tested.
 
 ---
 
-## 📊 RECENT TEST RESULTS
+# Testing Status
 
-### bhunter PR #8 (2026-02-14)
-- **Language**: C#
-- **Command**: `pullreview fix-pr -v`
-- **Workflow**: Fix existing comments
-- **Result**: ✅ SUCCESS
-- **Details**: 1 comment → 1 fix → dotnet build passed → PR #9 created
-- **Verification**: Build only (tests skipped per config)
+This document tracks which commands and flags have been **actually tested on real pull requests**.
 
-### bhunter PR #6 (2026-02-14)
-- **Language**: C#
-- **Command**: `pullreview fix-pr --post -v`
-- **Workflow**: Combined autofix with posting (ONE LLM call)
-- **Result**: ✅ SUCCESS
-- **Details**: 1 issue + 1 fix in ONE call → comment posted → dotnet build passed → PR #7 created
-- **Verification**: Build only (tests skipped per config)
+**Last Updated:** 2026-02-14
 
-### menuplanning-api PR #89 (2026-02-14)
-- **Language**: C#
-- **Command**: `pullreview fix-pr --post -v`
-- **Workflow**: Fix existing comments with posting
-- **Result**: ✅ SUCCESS
-- **Details**: 5 comments → 1 fix → dotnet build passed → PR #92 created
-- **Verification**: Build only (tests skipped per config)
+---
 
-### menuplanning-api PR #89 - Earlier Test (2026-02-13)
-- **Language**: C#
-- **Command**: `pullreview fix-pr --skip-verification -v`
-- **Workflow**: Fix existing comments
-- **Result**: ✅ SUCCESS
-- **Details**: 3 comments → 1 fix → verification skipped → PR #91 created
-- **Verification**: Skipped via flag
+## ✅ TESTED ON REAL PULL REQUESTS
+
+### Review Commands
+
+| Command | Tested On | Language | Result | Notes |
+|---------|-----------|----------|--------|-------|
+| `pullreview` | bhunter PR #5 | C# | ✅ PASS | Displayed 1 comment correctly |
+| `pullreview -v` | Multiple PRs | C#, Go | ✅ PASS | Verbose output working |
+
+### Fix Commands
+
+| Command | Tested On | Language | Result | Notes |
+|---------|-----------|----------|--------|-------|
+| `pullreview fix-pr --dry-run -v` | bhunter PR #6, PR #8 | C# | ✅ PASS | Applied fixes locally, no commit |
+| `pullreview fix-pr -v` | bhunter PR #8 | C# | ✅ PASS | Created PR #9, stacked correctly |
+| `pullreview fix-pr --post -v` | bhunter PR #6 | C# | ✅ PASS | Posted 1 comment + created PR #7 |
+| `pullreview fix-pr --post -v` | menuplanning-api PR #89 | C# | ✅ PASS | Posted 3 comments + created PR #92 |
+| `pullreview fix-pr --skip-verification -v` | menuplanning-api PR #89 | C# | ✅ PASS | Skipped verification, created PR #91 |
+
+### Workflows Tested on Real PRs
+
+| Workflow | Prompt Used | Tested On | LLM Calls | Result |
+|----------|-------------|-----------|-----------|--------|
+| Review-only (display) | `prompt.md` | bhunter PR #5 | 1 | ✅ PASS |
+| Auto-fix (no existing comments) | `autofix_prompt.md` | bhunter PR #6 | **1** | ✅ PASS (combined find+fix) |
+| Fix existing comments | `fix_prompt.md` | bhunter PR #8, menuplanning-api PR #89 | 1 | ✅ PASS |
+
+### Language Support Tested
+
+| Language | Tested On | Detection | Build | Tests | Result |
+|----------|-----------|-----------|-------|-------|--------|
+| C# | menuplanning-api, bhunter | ✅ | ✅ (dotnet build) | ⚠️ Skipped | Fully working |
+| Go | pullreview repo (self) | ✅ | ⚠️ Not tested | ⚠️ Not tested | Detection working, verifier not tested on real PR |
+
+---
+
+## ❌ NOT TESTED ON REAL PULL REQUESTS
+
+### Commands/Flags Not Tested
+
+| Command/Flag | Priority | Notes |
+|--------------|----------|-------|
+| `pullreview --post` | HIGH | Should post comments to Bitbucket (not tested on real PR) |
+| `pullreview fix-pr --max-iterations N` | LOW | Implemented but not tested |
+| `pullreview fix-pr --branch-prefix <name>` | LOW | Implemented but not tested |
+| `pullreview --pr <ID>` / `pullreview fix-pr --pr <ID>` | LOW | Manual PR ID override not tested |
+
+### Scenarios Not Tested
+
+| Scenario | Priority | Notes |
+|----------|----------|-------|
+| Fix correction iterations (multi-pass) | MEDIUM | When first fix fails verification, LLM should retry (not yet triggered) |
+| Go project PR | MEDIUM | Haven't tested on real Go PR yet |
+| Mixed language PR (Go + C#) | LOW | Haven't found a PR with both languages |
+| Pipeline mode (CI/CD) | LOW | Auto-detected in CI environment (not tested) |
+| Max iterations exceeded | LOW | What happens when fix can't pass after N tries |
 
 ---
 
