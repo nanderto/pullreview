@@ -75,8 +75,7 @@ verifies build/test/lint, and creates a stacked pull request with the fixes.`,
 	fixPRCmd.Flags().Bool("skip-verification", false, "Skip build/test/lint verification (dangerous)")
 	fixPRCmd.Flags().Int("max-iterations", 0, "Maximum fix iterations (0 = use config default)")
 	fixPRCmd.Flags().String("branch-prefix", "", "Branch name prefix (default: from config)")
-	fixPRCmd.Flags().Bool("no-pr", false, "Don't create stacked PR (just fix locally)")
-	fixPRCmd.Flags().Bool("regenerate", false, "Generate new review instead of using existing comments")
+	fixPRCmd.Flags().Bool("post", false, "Post review comments to Bitbucket before applying fixes")
 
 	rootCmd.AddCommand(fixPRCmd)
 
@@ -245,10 +244,6 @@ func runFixPR(cmd *cobra.Command, args []string) error {
 		autoFixCfg.VerifyLint = false
 	}
 
-	if noPR, _ := cmd.Flags().GetBool("no-pr"); noPR {
-		autoFixCfg.AutoCreatePR = false
-	}
-
 	// Detect pipeline mode
 	if config.DetectPipelineMode() {
 		autoFixCfg.PipelineMode = true
@@ -307,56 +302,104 @@ func runFixPR(cmd *cobra.Command, args []string) error {
 	}
 
 	var reviewComments []review.Comment
+	var useAutofixPrompt bool
 
-	// Check if we should regenerate review or use existing comments
-	regenerate, _ := cmd.Flags().GetBool("regenerate")
-
-	if regenerate {
-		// Generate new review comments
-		fmt.Println("🤖 Generating new review comments...")
-		reviewComments, err = getReviewComments(cfg, llmClient, finalPRID, diff)
-		if err != nil {
-			return fmt.Errorf("failed to generate review: %w", err)
-		}
-	} else {
-		// Fetch existing review comments from Bitbucket
-		fmt.Println("📥 Fetching existing review comments from Bitbucket...")
-		bbComments, err := bbClient.GetPRComments(finalPRID)
-		if err != nil {
-			return fmt.Errorf("failed to fetch PR comments: %w", err)
-		}
-
-		// Convert Bitbucket comments to review.Comment format
-		reviewComments = convertBitbucketCommentsToReviewComments(bbComments)
+	// Fetch existing review comments from Bitbucket
+	fmt.Println("📥 Fetching existing review comments from Bitbucket...")
+	bbComments, err := bbClient.GetPRComments(finalPRID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch PR comments: %w", err)
 	}
 
+	// Convert Bitbucket comments to review.Comment format
+	reviewComments = convertBitbucketCommentsToReviewComments(bbComments)
+
+	// Determine which approach to use
 	if len(reviewComments) == 0 {
-		if regenerate {
-			fmt.Println("✅ No issues found - nothing to fix!")
-		} else {
-			fmt.Println("✅ No existing review comments found - nothing to fix!")
-			fmt.Println("💡 Tip: Use --regenerate to generate a new review instead")
-		}
-		return nil
+		// No existing comments - use combined autofix prompt (find + fix in one call)
+		useAutofixPrompt = true
+		fmt.Println("📝 No existing comments found - will use combined find+fix approach...")
+	} else {
+		// Have existing comments - use fix-existing-comments approach
+		useAutofixPrompt = false
+		fmt.Printf("📝 Found %d existing comment(s) to fix\n", len(reviewComments))
 	}
-
-	fmt.Printf("📝 Found %d comment(s) to fix\n", len(reviewComments))
 
 	// Initialize AutoFixer
 	autofixer := autofix.NewAutoFixer(autoFixCfg, llmClient, repoPath)
 	autofixer.SetVerbose(verbose)
 	autofixer.SetBitbucketClient(bbClient)
 
-	// Get file contents for context
-	fileContents, err := getFileContents(repoPath, reviewComments)
-	if err != nil {
-		return fmt.Errorf("failed to read file contents: %w", err)
-	}
+	var fixResult *autofix.FixResult
 
-	// Apply fixes
-	fixResult, err := autofixer.GenerateAndApplyFixes(ctx, reviewComments, diff, fileContents)
-	if err != nil {
-		return fmt.Errorf("fix generation failed: %w", err)
+	if useAutofixPrompt {
+		// Use combined autofix approach (find issues + generate fixes in ONE LLM call)
+		// Get file contents for context
+		fileContents, err := getFileContentsFromDiff(repoPath, diff)
+		if err != nil {
+			return fmt.Errorf("failed to read file contents: %w", err)
+		}
+
+		// Generate issues and fixes in one call
+		autofixResp, err := autofixer.GenerateFindAndFix(ctx, diff, fileContents)
+		if err != nil {
+			return fmt.Errorf("autofix generation failed: %w", err)
+		}
+
+		if len(autofixResp.Issues) == 0 && len(autofixResp.Fixes) == 0 {
+			fmt.Println("✅ No issues found - nothing to fix!")
+			return nil
+		}
+
+		fmt.Printf("📝 Found %d issue(s) with %d fix(es)\n", len(autofixResp.Issues), len(autofixResp.Fixes))
+
+		// Convert autofix issues to review comments for posting
+		for _, issue := range autofixResp.Issues {
+			reviewComments = append(reviewComments, review.Comment{
+				FilePath: issue.File,
+				Line:     issue.Line,
+				Text:     issue.Comment,
+			})
+		}
+
+		// Post comments to Bitbucket if --post flag is set
+		postComments, _ := cmd.Flags().GetBool("post")
+		if postComments && len(reviewComments) > 0 {
+			fmt.Println("📤 Posting review comments to Bitbucket...")
+			if err := postCommentsToBitbucket(bbClient, finalPRID, reviewComments); err != nil {
+				return fmt.Errorf("failed to post comments: %w", err)
+			}
+			fmt.Printf("✅ Posted %d comment(s) to PR #%s\n", len(reviewComments), finalPRID)
+		}
+
+		// Apply the fixes (from the same LLM response)
+		fixResult, err = autofixer.ApplyFixesDirectly(ctx, autofixResp.Fixes)
+		if err != nil {
+			return fmt.Errorf("fix application failed: %w", err)
+		}
+	} else {
+		// Use fix-existing-comments approach
+		// Post comments to Bitbucket if --post flag is set (they already exist, but user might want them reposted)
+		postComments, _ := cmd.Flags().GetBool("post")
+		if postComments {
+			fmt.Println("📤 Posting review comments to Bitbucket...")
+			if err := postCommentsToBitbucket(bbClient, finalPRID, reviewComments); err != nil {
+				return fmt.Errorf("failed to post comments: %w", err)
+			}
+			fmt.Printf("✅ Posted %d comment(s) to PR #%s\n", len(reviewComments), finalPRID)
+		}
+
+		// Get file contents for context
+		fileContents, err := getFileContents(repoPath, reviewComments)
+		if err != nil {
+			return fmt.Errorf("failed to read file contents: %w", err)
+		}
+
+		// Apply fixes using existing comments
+		fixResult, err = autofixer.GenerateAndApplyFixes(ctx, reviewComments, diff, fileContents)
+		if err != nil {
+			return fmt.Errorf("fix generation failed: %w", err)
+		}
 	}
 
 	if !fixResult.Success {
@@ -371,6 +414,15 @@ func runFixPR(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("✅ Applied %d fix(es) to %d file(s)\n", fixResult.FixesApplied, len(fixResult.FilesChanged))
+
+	// If no fixes were applied, exit early
+	if fixResult.FixesApplied == 0 {
+		fmt.Println("ℹ️  No fixes were applied. Nothing to commit.")
+		if postComments, _ := cmd.Flags().GetBool("post"); postComments {
+			fmt.Println("💡 Review comments have been posted to the PR")
+		}
+		return nil
+	}
 
 	// Check if dry-run
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
@@ -505,6 +557,38 @@ func getFileContents(repoPath string, comments []review.Comment) (map[string]str
 		}
 
 		contents[comment.FilePath] = string(data)
+	}
+
+	return contents, nil
+}
+
+// getFileContentsFromDiff extracts file paths from diff and reads their contents.
+func getFileContentsFromDiff(repoPath string, diff string) (map[string]string, error) {
+	contents := make(map[string]string)
+
+	// Parse diff to extract file paths
+	// Look for lines like "diff --git a/path/to/file b/path/to/file"
+	lines := strings.Split(diff, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "diff --git") {
+			// Extract file path (after "b/")
+			parts := strings.Split(line, " b/")
+			if len(parts) == 2 {
+				filePath := parts[1]
+				if _, exists := contents[filePath]; exists {
+					continue
+				}
+
+				fullPath := filepath.Join(repoPath, filePath)
+				data, err := os.ReadFile(fullPath)
+				if err != nil {
+					// Skip files that can't be read (might be deleted)
+					continue
+				}
+
+				contents[filePath] = string(data)
+			}
+		}
 	}
 
 	return contents, nil

@@ -16,6 +16,21 @@ import (
 	"pullreview/internal/verify"
 )
 
+// AutofixResponse holds both issues and fixes from the combined autofix prompt.
+type AutofixResponse struct {
+	Issues  []AutofixIssue `json:"issues"`
+	Fixes   []Fix          `json:"fixes"`
+	Summary string         `json:"summary"`
+}
+
+// AutofixIssue represents a single issue found during autofix.
+type AutofixIssue struct {
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Comment  string `json:"comment"`
+	Severity string `json:"severity"`
+}
+
 // AutoFixer orchestrates the auto-fix workflow.
 type AutoFixer struct {
 	config    *AutoFixConfig
@@ -62,6 +77,84 @@ func (af *AutoFixer) SetVerbose(v bool) {
 // SetBitbucketClient sets the Bitbucket client for PR operations.
 func (af *AutoFixer) SetBitbucketClient(client *bitbucket.Client) {
 	af.bbClient = client
+}
+
+// ApplyFixesDirectly applies a list of fixes without iterative generation.
+// Used when fixes are already provided (e.g., from combined autofix prompt).
+func (af *AutoFixer) ApplyFixesDirectly(
+	ctx context.Context,
+	fixes []Fix,
+) (*FixResult, error) {
+	result := &FixResult{
+		Success:       false,
+		FilesChanged:  []string{},
+		FixesApplied:  0,
+		FixesFailed:   0,
+		Iterations:    1,
+		ErrorMessages: []string{},
+	}
+
+	if len(fixes) == 0 {
+		result.Success = true
+		return result, nil
+	}
+
+	// Apply fixes and verify
+	verificationResult, err := af.applyAndVerify(fixes)
+	if err != nil {
+		result.ErrorMessages = append(result.ErrorMessages, fmt.Sprintf("Apply/verify error: %v", err))
+		// Restore backups on error
+		af.applier.RestoreBackups()
+		return result, fmt.Errorf("apply/verify failed: %w", err)
+	}
+
+	// Update result with verification status
+	if verificationResult.BuildPassed {
+		result.BuildStatus = "passed"
+	} else {
+		result.BuildStatus = "failed"
+	}
+
+	if verificationResult.TestsPassed {
+		result.TestStatus = "passed"
+	} else {
+		result.TestStatus = "failed"
+	}
+
+	if verificationResult.VetPassed && verificationResult.FmtPassed {
+		result.LintStatus = "passed"
+	} else {
+		result.LintStatus = "failed"
+	}
+
+	// Check if all verifications passed
+	if verificationResult.AllPassed {
+		if af.verbose {
+			fmt.Println("✓ All verifications passed!")
+		}
+		result.Success = true
+		result.FixesApplied = len(fixes)
+
+		// Track modified files
+		for _, fix := range fixes {
+			if !containsString(result.FilesChanged, fix.File) {
+				result.FilesChanged = append(result.FilesChanged, fix.File)
+			}
+		}
+
+		// Clear backups since we succeeded
+		af.applier.ClearBackups()
+
+		return result, nil
+	}
+
+	// Verification failed
+	result.Success = false
+	result.FixesFailed = len(fixes)
+	result.ErrorMessages = append(result.ErrorMessages, verificationResult.CombinedErrors)
+	af.applier.RestoreBackups()
+
+	return result, fmt.Errorf("verification failed: %s", verificationResult.CombinedErrors)
 }
 
 // GenerateAndApplyFixes runs the full fix generation and application workflow.
@@ -207,6 +300,112 @@ func (af *AutoFixer) GenerateAndApplyFixes(
 	}
 
 	return result, fmt.Errorf("max iterations exceeded, final errors: %s", verificationResult.CombinedErrors)
+}
+
+// GenerateFindAndFix uses the combined autofix prompt to find issues and generate fixes in one LLM call.
+// Returns both the issues (for posting as comments) and fixes (for applying to code).
+func (af *AutoFixer) GenerateFindAndFix(
+	ctx context.Context,
+	diff string,
+	fileContents map[string]string,
+) (*AutofixResponse, error) {
+	if af.verbose {
+		fmt.Println("Generating issues and fixes from LLM (combined autofix prompt)...")
+	}
+
+	prompt := af.buildAutofixPrompt(diff, fileContents)
+
+	response, err := af.llmClient.SendFixPrompt(prompt)
+	if err != nil {
+		return nil, fmt.Errorf("LLM request failed: %w", err)
+	}
+
+	// Strip markdown code fences if present
+	jsonStr := extractJSON(response)
+
+	// Parse the JSON response
+	var autofixResponse AutofixResponse
+	err = json.Unmarshal([]byte(jsonStr), &autofixResponse)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse LLM response as JSON: %w\nResponse: %s", err, response)
+	}
+
+	// Validate and filter fixes
+	validFixes := af.validateFixes(autofixResponse.Fixes)
+	autofixResponse.Fixes = validFixes
+
+	if af.verbose {
+		fmt.Printf("LLM returned %d issue(s) and %d fix(es)\n", len(autofixResponse.Issues), len(autofixResponse.Fixes))
+	}
+
+	return &autofixResponse, nil
+}
+
+// buildAutofixPrompt constructs the combined find+fix prompt.
+func (af *AutoFixer) buildAutofixPrompt(
+	diff string,
+	fileContents map[string]string,
+) string {
+	// Read the autofix prompt template
+	promptTemplate, err := af.readPromptTemplate(af.config.AutofixPromptFile)
+	if err != nil {
+		if af.verbose {
+			fmt.Printf("Failed to read autofix prompt template: %v, using default\n", err)
+		}
+		promptTemplate = getDefaultAutofixPrompt()
+	}
+
+	// Format file contents
+	var fileContentsStr strings.Builder
+	for file, content := range fileContents {
+		fileContentsStr.WriteString(fmt.Sprintf("\n### File: %s\n\n```\n%s\n```\n", file, content))
+	}
+
+	// Replace placeholders
+	prompt := strings.ReplaceAll(promptTemplate, "{DIFF_CONTENT}", diff)
+	prompt = strings.ReplaceAll(prompt, "{FILE_CONTENTS}", fileContentsStr.String())
+
+	return prompt
+}
+
+// getDefaultAutofixPrompt returns a default combined find+fix prompt.
+func getDefaultAutofixPrompt() string {
+	return `# AUTO-FIX: FIND ISSUES AND GENERATE FIXES
+
+You are a code reviewer and fix generator. Find defects and generate fixes in one response.
+
+## OUTPUT FORMAT
+Respond with ONLY a JSON object (no markdown, no explanation):
+
+{
+  "issues": [
+    {
+      "file": "path/to/file",
+      "line": 45,
+      "comment": "Description of the issue",
+      "severity": "high|medium|low"
+    }
+  ],
+  "fixes": [
+    {
+      "file": "path/to/file",
+      "line_start": 45,
+      "line_end": 47,
+      "original_code": "exact code to replace",
+      "fixed_code": "corrected code",
+      "issue_addressed": "Brief description",
+      "severity": "high|medium|low"
+    }
+  ],
+  "summary": "Brief summary"
+}
+
+## DIFF
+{DIFF_CONTENT}
+
+## FILE CONTENTS
+{FILE_CONTENTS}
+`
 }
 
 // generateFixes sends review issues to LLM and parses the response.

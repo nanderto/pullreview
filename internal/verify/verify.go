@@ -106,7 +106,7 @@ func (v *Verifier) RunAll() (*VerificationResult, error) {
 
 // runCSharpVerification runs C# specific verification.
 func (v *Verifier) runCSharpVerification() (*VerificationResult, error) {
-	verifier := NewCSharpVerifier(v.config.RepoPath, v.config.Verbose)
+	verifier := NewCSharpVerifier(v.config.RepoPath, v.config.Verbose, v.config)
 	return verifier.Verify()
 }
 

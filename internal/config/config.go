@@ -48,7 +48,8 @@ type Config struct {
 		VerifyLint            bool   `yaml:"verify_lint"`
 		PipelineMode          bool   `yaml:"pipeline_mode"`
 		BranchPrefix          string `yaml:"branch_prefix"`
-		FixPromptFile         string `yaml:"fix_prompt_file"`
+		AutofixPromptFile     string `yaml:"autofix_prompt_file"` // Combined find+fix prompt
+		FixPromptFile         string `yaml:"fix_prompt_file"`     // Fix existing comments prompt
 		CommitMessageTemplate string `yaml:"commit_message_template"`
 		PRTitleTemplate       string `yaml:"pr_title_template"`
 		PRDescriptionTemplate string `yaml:"pr_description_template"`
