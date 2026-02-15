@@ -352,10 +352,12 @@ CI=true pullreview fix-pr --pr 123
 
 ---
 
-## What's Next After Current Step
+## What's Next
 
-**Complete Phase 6**: 7 more tasks (interface, registry, verifiers)  
-**Then Phase 7**: Testing & hardening
+**Phase 7**: Complete testing & hardening
+- Add unit tests for all components
+- Test on real Go PRs
+- Add JavaScript/TypeScript verifier for broader language support
 
 ---
 
