@@ -9,14 +9,14 @@
 | 3 | Git Operations | ✅ Complete | 2026-02-12 |
 | 4 | Stacked PR Creation | ✅ Complete | 2026-02-12 |
 | 5 | CLI Implementation | ✅ Complete | 2026-02-13 |
-| 6 | Multi-Language Support | ⏳ In Progress | - |
-| 7 | Testing & Hardening | ⏳ Not Started | - |
+| 6 | Multi-Language Support | ✅ Complete (Go, C#) | 2026-02-14 |
+| 7 | Testing & Hardening | ⏳ In Progress | - |
 
 ---
 
 ## Overview
 
-The `pullreview` tool now supports automated code fixing with stacked PR creation. **Core functionality is complete and working.** Current focus is adding multi-language detection and verification support.
+The `pullreview` tool now supports automated code fixing with stacked PR creation. **Core functionality is complete and working.** Multi-language detection and verification support is implemented for **Go and C#**, with extensible architecture for additional languages.
 
 ---
 
@@ -30,11 +30,11 @@ The `pullreview` tool now supports automated code fixing with stacked PR creatio
 - Creates stacked PRs on Bitbucket
 - CLI command: `pullreview fix-pr`
 
-✅ **Verification** (currently Go-only)
-- `gofmt` - code formatting check
-- `go vet` - static analysis
-- `go build` - compilation
-- `go test` - test execution
+✅ **Multi-Language Verification**
+- **Auto-detects** project language(s) (Go, C#)
+- **Go**: `gofmt`, `go vet`, `go build`, `go test`
+- **C#**: `dotnet build`, `dotnet test`
+- **Configurable**: Enable/disable build, test, lint per language
 
 ✅ **Key Features**
 - Backup/restore on failure
@@ -45,13 +45,11 @@ The `pullreview` tool now supports automated code fixing with stacked PR creatio
 
 ---
 
-## Current Focus: Multi-Language Support
+## Current Status
 
-**Problem**: Verification is hardcoded to Go tools. Need to detect project language(s) and run appropriate verifiers.
+**Phase 6 Complete**: Multi-language architecture implemented for Go and C#. System is extensible for additional languages.
 
-**Solution**: See `docs/multi_language_architecture.md`
-
-**Progress**: Architecture designed → **Next: Implement detector**
+**Phase 7 In Progress**: Testing & hardening. See `docs/TESTING_STATUS.md` for real PR test results.
 
 ---
 
@@ -142,36 +140,80 @@ The `pullreview` tool now supports automated code fixing with stacked PR creatio
 
 ---
 
-### Phase 6: Multi-Language Support ⏳ IN PROGRESS
+### Phase 6: Multi-Language Support ✅ COMPLETE (Go, C#)
 
-**What's Done**:
-- ✅ Architecture designed (see `docs/multi_language_architecture.md`)
+**Implemented**:
+- ✅ Language detector (`internal/verify/detector.go`)
+  - Detects **Go**: `go.mod`, `*.go` files
+  - Detects **C#**: `*.csproj`, `*.sln`, `*.cs` files
+- ✅ Verifier interface (`internal/verify/verify.go`)
+  - `type Verifier interface { Verify() error }`
+  - `VerificationConfig` with `verify_build`, `verify_tests`, `verify_lint` flags
+- ✅ Go verifier (`internal/verify/verify.go` - `runGoVerification()`)
+  - Runs: `gofmt`, `go vet`, `go build`, `go test`
+  - Respects config flags
+- ✅ C# verifier (`internal/verify/csharp_verifier.go`)
+  - Finds `.sln` file recursively
+  - Runs: `dotnet build`, `dotnet test`
+  - Respects config flags
+- ✅ Dynamic dispatcher (`internal/verify/verify.go`)
+  - `NewVerifier()` calls `DetectLanguages()` and stores results
+  - `RunAll()` uses `switch` statement to call language-specific verifier
+- ✅ Integration with auto-fix workflow
+  - Auto-detects language and runs appropriate verifier
+  - No changes needed to `AutoFixer` - it calls `verifier.RunAll()`
 
-**Next**: Create `internal/verify/detector.go` - Language detection logic
+**Architecture**: Switch-based (no registry needed for small language set)
 
-**Remaining**:
-- Create `internal/verify/interface.go` - Verifier interface
-- Create `internal/verify/registry.go` - Verifier registry
-- Refactor to `internal/verify/go_verifier.go` - Extract Go logic
-- Create `internal/verify/python_verifier.go` - Python support
-- Create `internal/verify/javascript_verifier.go` - JS/TS support
-- Update `AutoFixer.applyAndVerify()` to use detector + registry
-- Add tests
+**Extensibility**: Adding new languages requires:
+1. Add detection logic to `detector.go`
+2. Create `internal/verify/{language}_verifier.go`
+3. Add case to `switch` in `RunAll()`
+
+**Future Languages** (not yet implemented):
+- JavaScript/TypeScript (`javascript_verifier.go`)
+  - Detects: `package.json`, `*.js`, `*.ts`, `*.jsx`, `*.tsx`
+  - Runs: `npm install`, `npm run build`, `npm test`, `npm run lint`
+  - **Single verifier handles all JS frameworks** (Angular, React, Svelte, Vue, etc.)
+- Python (`python_verifier.go`)
+  - Detects: `*.py`, `requirements.txt`, `setup.py`, `pyproject.toml`
+  - Runs: `pylint`, `pytest`, `mypy`
+- Rust (`rust_verifier.go`)
+  - Detects: `Cargo.toml`, `*.rs`
+  - Runs: `cargo fmt --check`, `cargo clippy`, `cargo build`, `cargo test`
+
+**Tested**:
+- ✅ C# verification on real PRs (menuplanning-api, bhunter repos)
+- ❌ Go verification not yet tested on real Go PR
 
 ---
 
-### Phase 7: Testing & Hardening ⏳ NOT STARTED
+### Phase 7: Testing & Hardening ⏳ IN PROGRESS
+
+**Completed**:
+- ✅ Real PR testing on C# projects (see `docs/TESTING_STATUS.md`)
+- ✅ 3-prompt strategy tested (review-only, combined autofix, fix existing)
+- ✅ Workflows tested: `--dry-run`, `--post`, `--skip-verification`
+- ✅ C# language detection and verification tested
+- ✅ Stacked PR creation tested
+- ✅ Iterative fix application tested
 
 **Remaining**:
-- `internal/autofix/autofix_test.go` - Core orchestration tests
-- `internal/autofix/types_test.go` - Type tests
-- `internal/git/operations_test.go` - Git operations tests
-- E2E test: Happy path (fix → verify → PR)
-- E2E test: Iteration loop (fix fails → correction → success)
-- E2E test: Max iterations exceeded
-- E2E test: Pipeline mode
-- Security: Validate LLM responses
+- Unit tests:
+  - `internal/autofix/autofix_test.go` - Core orchestration tests
+  - `internal/autofix/types_test.go` - Type tests
+  - `internal/git/operations_test.go` - Git operations tests
+  - `internal/verify/detector_test.go` - Language detection tests
+  - `internal/verify/csharp_verifier_test.go` - C# verifier tests
+- E2E tests:
+  - Multi-pass iteration loop (fix fails verification → LLM correction → success)
+  - Max iterations exceeded behavior
+  - Pipeline mode (CI environment)
+  - Go project PR (end-to-end)
+  - Mixed language PR (Go + C#)
+- Security: Validate LLM responses for malicious code injection
 - Performance: Large diffs and many fixes
+- Edge cases: Empty fixes, invalid JSON, network failures
 
 ---
 
@@ -190,7 +232,10 @@ Detect Language(s) → Verify → [Pass/Fail Loop] → Commit → Push → Creat
 |-----------|------|----------------|
 | AutoFixer | `internal/autofix/autofix.go` | Orchestrates entire workflow |
 | Applier | `internal/autofix/types.go` | Applies fixes with backup/restore |
-| Verifier | `internal/verify/verify.go` | Runs build/lint/test (Go-only currently) |
+| Verifier | `internal/verify/verify.go` | Orchestrates verification (multi-language) |
+| Detector | `internal/verify/detector.go` | Detects project language(s) |
+| Go Verifier | `internal/verify/verify.go` | Go-specific verification |
+| C# Verifier | `internal/verify/csharp_verifier.go` | C#-specific verification |
 | Git Ops | `internal/git/operations.go` | Branch, commit, push operations |
 | BB Client | `internal/bitbucket/client.go` | PR creation and fetching |
 | LLM Client | `internal/llm/client.go` | LLM communication |
@@ -199,14 +244,18 @@ Detect Language(s) → Verify → [Pass/Fail Loop] → Commit → Push → Creat
 
 ```
 internal/
-├── autofix/       # Fix generation, application, orchestration (728 lines)
-├── verify/        # Build/lint/test verification (268 lines) [Multi-language next]
+├── autofix/       # Fix generation, application, orchestration
+├── verify/        # Multi-language verification
+│   ├── verify.go           # Orchestration + Go verifier
+│   ├── detector.go         # Language detection (Go, C#)
+│   ├── csharp_verifier.go  # C# verification
+│   └── (future: javascript_verifier.go, python_verifier.go, etc.)
 ├── git/           # Git operations
 ├── bitbucket/     # Bitbucket API integration
 └── llm/           # LLM communication
 
 cmd/pullreview/
-└── main.go        # CLI with fix-pr subcommand (467 lines)
+└── main.go        # CLI with pullreview and fix-pr commands
 ```
 
 ---
