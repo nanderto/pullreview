@@ -5,18 +5,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"pullreview/internal/bitbucket"
-
 	"pullreview/internal/config"
-
-	"io/ioutil"
 	"pullreview/internal/llm"
 	"pullreview/internal/review"
 	"pullreview/internal/utils"
-	"strings"
 )
 
 var (
@@ -33,13 +30,13 @@ var (
 )
 
 func main() {
-	// Determine default config path: executable directory
-	defaultConfig := "pullreview.yaml"
+	// Try to find config file next to the binary (optional)
+	defaultConfig := ""
 	if exePath, err := os.Executable(); err == nil {
-		exeDir := ""
-		if exePath != "" {
-			exeDir = filepath.Dir(exePath)
-			defaultConfig = filepath.Join(exeDir, "pullreview.yaml")
+		exeDir := filepath.Dir(exePath)
+		configPath := filepath.Join(exeDir, "pullreview.yaml")
+		if _, err := os.Stat(configPath); err == nil {
+			defaultConfig = configPath
 		}
 	}
 
@@ -50,7 +47,7 @@ func main() {
 		RunE:  runPullReview,
 	}
 
-	rootCmd.Flags().StringVarP(&cfgFile, "config", "c", defaultConfig, "Path to config file")
+	rootCmd.Flags().StringVarP(&cfgFile, "config", "c", defaultConfig, "Path to config file (optional, auto-detected or use env vars)")
 	rootCmd.Flags().StringVar(&prID, "pr", "", "Bitbucket Pull Request ID (overrides branch inference)")
 	rootCmd.Flags().StringVar(&bbEmail, "email", "", "Bitbucket account email (overrides config/env)")
 	rootCmd.Flags().StringVar(&bbAPIToken, "token", "", "Bitbucket API token (overrides config/env)")
@@ -193,11 +190,16 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load prompt template
-	promptBytes, err := ioutil.ReadFile(promptPath)
+	promptBytes, err := os.ReadFile(promptPath)
 	if err != nil {
 		return fmt.Errorf("failed to read prompt file %q: %w", promptPath, err)
 	}
 	promptTemplate := string(promptBytes)
+
+	// Validate prompt is not empty
+	if strings.TrimSpace(promptTemplate) == "" {
+		return fmt.Errorf("prompt file %q is empty - cannot proceed without a valid prompt template", promptPath)
+	}
 
 	// Inject diff into prompt
 	finalPrompt := strings.Replace(promptTemplate, "(DIFF_CONTENT_HERE)", diff, 1)

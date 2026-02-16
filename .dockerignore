@@ -1,0 +1,33 @@
+# Git files
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md
+!prompt.md
+
+# Example configs
+*.example
+
+# Build artifacts
+pullreview
+
+# Tests
+*_test.go
+testdata
+
+# IDE
+.vscode
+.idea
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+.dockerignore
+
+pullreview.yaml
+*.json

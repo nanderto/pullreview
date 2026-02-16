@@ -1,0 +1,43 @@
+# Build stage
+FROM golang:1.24 AS builder
+
+# Set working directory
+WORKDIR /build
+
+# Copy go module files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the binary with static linking (CGO disabled for fully static binary)
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o pullreview ./cmd/pullreview
+
+# Run stage - using debian for Copilot CLI support
+FROM debian:12-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install required dependencies for Copilot CLI
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install Copilot CLI
+RUN curl -fsSL https://gh.io/copilot-install | bash
+
+# Copy binary and prompt file from builder
+COPY --from=builder /build/pullreview .
+COPY --from=builder /build/prompt.md .
+
+# Create non-root user for security
+RUN useradd -m appuser && chown -R appuser:appuser /app
+USER appuser
+
+# Set the entrypoint
+ENTRYPOINT ["/app/pullreview"]
