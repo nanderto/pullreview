@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -47,17 +46,10 @@ func CheckCLIAvailable() error {
 
 // checkAuth verifies that the Copilot CLI is authenticated by running a test prompt.
 func checkAuth() error {
-	var errBuf strings.Builder
-	checkCmd := exec.Command("copilot", "-p", "hello")
-	checkCmd.Stderr = &errBuf
-	checkCmd.Run() // Don't check exit code, check stderr instead
-
-	stderrOutput := errBuf.String()
-	if stderrOutput != "" {
-		// Any stderr output indicates an error (most likely auth)
-		return errors.New("Copilot CLI is not authenticated. Set COPILOT_GITHUB_TOKEN/GH_TOKEN/GITHUB_TOKEN environment variable or run 'copilot' and use '/login' command locally")
+	output, err := exec.Command("copilot", "-p", "hello").CombinedOutput()
+	if err != nil {
+		return errors.New(string(output))
 	}
-
 	return nil
 }
 
