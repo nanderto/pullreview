@@ -74,7 +74,7 @@ func GetLocalDiff(repoPath string, targetBranch string) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git diff failed: %s: %w", strings.TrimSpace(stderr.String()), err)
+		return "", fmt.Errorf("git diff against %q failed (does the branch exist?): %s: %w", targetBranch, strings.TrimSpace(stderr.String()), err)
 	}
 	diff := stdout.String()
 	if strings.TrimSpace(diff) == "" {

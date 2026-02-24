@@ -26,7 +26,7 @@ var (
 	verbose      bool
 	postToBB     bool
 	skipInline   bool
-	localReview  string
+	localReview  bool
 	targetBranch string
 	version      = "0.1.0"
 )
@@ -46,6 +46,7 @@ func main() {
 		Use:   "pullreview",
 		Short: "Automated code review for Bitbucket Cloud PRs using LLMs",
 		Long:  "pullreview fetches Bitbucket Cloud PR diffs, sends them to an LLM for review, and posts AI-generated comments back to Bitbucket.",
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  runPullReview,
 	}
 
@@ -58,11 +59,7 @@ func main() {
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.Flags().BoolVar(&postToBB, "post", false, "Post comments to Bitbucket (default: false, just print comments)")
 	rootCmd.Flags().BoolVar(&skipInline, "skip-inline", false, "Skip interactive prompt (non-interactive mode)")
-	rootCmd.Flags().StringVar(&localReview, "local", "", "Review local branch changes against target branch (optional: path to repo folder)")
-	// NoOptDefVal allows --local without a value (defaults to "."/cwd).
-	// With a value, use --local=/path or --local /path (the latter is
-	// handled via positional arg fallback in runPullReview).
-	rootCmd.Flag("local").NoOptDefVal = "."
+	rootCmd.Flags().BoolVar(&localReview, "local", false, "Review local branch changes against target branch (optional positional arg: path to repo folder)")
 	rootCmd.Flags().StringVar(&targetBranch, "target", "main", "Target branch to diff against when using --local")
 
 	cobra.OnInitialize(initConfig)
@@ -97,22 +94,19 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 	var finalPRID string
 	var bbClient *bitbucket.Client
 
-	if localReview != "" {
+	if localReview {
 		// Local branch review: get diff from git, skip Bitbucket entirely
-		repoPath := localReview
-		// When --local is used without "=", the path ends up as a positional arg
-		if repoPath == "." && len(args) > 0 {
-			repoPath = args[0]
-		}
-		if repoPath == "." {
+		// Optional positional arg specifies the repo path (defaults to cwd)
+		var repoPath string
+		if len(args) > 0 {
+			repoPath, err = filepath.Abs(args[0])
+			if err != nil {
+				return fmt.Errorf("could not resolve path %q: %w", args[0], err)
+			}
+		} else {
 			repoPath, err = os.Getwd()
 			if err != nil {
 				return fmt.Errorf("could not determine working directory: %w", err)
-			}
-		} else {
-			repoPath, err = filepath.Abs(repoPath)
-			if err != nil {
-				return fmt.Errorf("could not resolve path %q: %w", repoPath, err)
 			}
 		}
 		branch, err := utils.GetCurrentGitBranch(repoPath)
@@ -290,7 +284,7 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 	}
 
 	// Skip Bitbucket posting for local reviews
-	if localReview != "" {
+	if localReview {
 		return nil
 	}
 
