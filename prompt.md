@@ -86,6 +86,7 @@ Your task is **defect detection only** — not mentorship, documentation, or exp
 * **ONLY** focus on unit tests and do not check for missing integrations and E2E tests
 
 ### DOCUMENTATION REVIEW
+* Check for current comments in the code those are affected by new changes and make sure these comments are up-to-date with the new logic change. Dead comments on the same area must also be reviewed and advise the user to remove them.
 * Check if there is a `docs` folder and ***ONLY IF*** the folder exists and check for all the documentations under the folder and make sure they are up-to-date with the new code changes and **ONLY IF** the new code change requires updating on the currently available content.
 * Check if there is a `README.md` file and ***ONLY IF*** the file exists and check for all the file content and make sure it is up-to-date with the new code changes and **ONLY IF** the new code change requires updating on the currently available content.
 * Check if the `AGENTS.md` and **ONLY IF** the file exists and check if file is up-to-date with the new code. **DO NOT** mess up `AGENTS.md` with "read me" type as `AGENTS.md` is for agent instructions. Any documentations update must belong to the above check on `docs` folder and/or `README.md` file
