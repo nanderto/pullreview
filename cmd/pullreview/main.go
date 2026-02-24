@@ -74,6 +74,17 @@ func initConfig() {
 	// Placeholder: could load config here if needed before command runs
 }
 
+// validateFlags checks for invalid flag combinations before execution.
+func validateFlags(args []string) error {
+	if !localReview && len(args) > 0 {
+		return fmt.Errorf("positional arguments are only accepted with --local; did you mean: pullreview --local %s", args[0])
+	}
+	if localReview && postToBB {
+		return fmt.Errorf("--post cannot be used with --local (no Bitbucket PR to post to)")
+	}
+	return nil
+}
+
 func runPullReview(cmd *cobra.Command, args []string) error {
 
 	if showVersion {
@@ -84,12 +95,8 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 
 	}
 
-	// Validate flag combinations
-	if !localReview && len(args) > 0 {
-		return fmt.Errorf("positional arguments are only accepted with --local; did you mean: pullreview --local %s", args[0])
-	}
-	if localReview && postToBB {
-		return fmt.Errorf("--post cannot be used with --local (no Bitbucket PR to post to)")
+	if err := validateFlags(args); err != nil {
+		return err
 	}
 
 	// Load configuration with overrides from CLI flags
