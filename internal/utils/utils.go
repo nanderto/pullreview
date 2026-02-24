@@ -76,11 +76,7 @@ func GetLocalDiff(repoPath string, targetBranch string) (string, error) {
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("git diff against %q failed (does the branch exist?): %s: %w", targetBranch, strings.TrimSpace(stderr.String()), err)
 	}
-	diff := stdout.String()
-	if strings.TrimSpace(diff) == "" {
-		return "", fmt.Errorf("no changes found between %s and HEAD", targetBranch)
-	}
-	return diff, nil
+	return stdout.String(), nil
 }
 
 // PromptYesNo prompts the user with a yes/no question and returns true if yes, false otherwise.

@@ -84,6 +84,14 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 
 	}
 
+	// Validate flag combinations
+	if !localReview && len(args) > 0 {
+		return fmt.Errorf("positional arguments are only accepted with --local; did you mean: pullreview --local %s", args[0])
+	}
+	if localReview && postToBB {
+		return fmt.Errorf("--post cannot be used with --local (no Bitbucket PR to post to)")
+	}
+
 	// Load configuration with overrides from CLI flags
 	cfg, err := config.LoadConfigWithOverrides(cfgFile, bbEmail, bbAPIToken, repoSlug)
 	if err != nil {
@@ -118,6 +126,10 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 		diff, err = utils.GetLocalDiff(repoPath, targetBranch)
 		if err != nil {
 			return fmt.Errorf("could not get local diff: %w", err)
+		}
+		if strings.TrimSpace(diff) == "" {
+			fmt.Printf("ℹ️  No changes found between %s and HEAD — branch is up to date.\n", targetBranch)
+			return nil
 		}
 		fmt.Printf("✅ Got local diff (length: %d bytes)\n", len(diff))
 
