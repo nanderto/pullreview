@@ -42,9 +42,9 @@ type Config struct {
 
 // LoadConfigWithOverrides loads configuration from a YAML file, then applies overrides from
 // environment variables and finally from CLI flags (email, apiToken, repoSlug).
-
+// If skipBitbucket is true, Bitbucket-specific fields are not validated (used for local-only reviews).
 // Returns a validated Config or an error if required fields are missing.
-func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string) (*Config, error) {
+func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string, skipBitbucket bool) (*Config, error) {
 
 	cfg := &Config{}
 
@@ -150,19 +150,19 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string) (*Config
 
 	// 6. Validate required fields
 	var missing []string
-	if strings.TrimSpace(cfg.Bitbucket.Email) == "" {
-		missing = append(missing, "bitbucket.email")
-	}
-	if strings.TrimSpace(cfg.Bitbucket.APIToken) == "" {
-		missing = append(missing, "bitbucket.api_token")
-	}
-
-	if strings.TrimSpace(cfg.Bitbucket.Workspace) == "" {
-		missing = append(missing, "bitbucket.workspace")
-	}
-
-	if strings.TrimSpace(cfg.Bitbucket.RepoSlug) == "" {
-		missing = append(missing, "bitbucket.repo_slug (could not infer from git remote)")
+	if !skipBitbucket {
+		if strings.TrimSpace(cfg.Bitbucket.Email) == "" {
+			missing = append(missing, "bitbucket.email")
+		}
+		if strings.TrimSpace(cfg.Bitbucket.APIToken) == "" {
+			missing = append(missing, "bitbucket.api_token")
+		}
+		if strings.TrimSpace(cfg.Bitbucket.Workspace) == "" {
+			missing = append(missing, "bitbucket.workspace")
+		}
+		if strings.TrimSpace(cfg.Bitbucket.RepoSlug) == "" {
+			missing = append(missing, "bitbucket.repo_slug (could not infer from git remote)")
+		}
 	}
 	if strings.TrimSpace(cfg.LLM.Provider) == "" {
 		missing = append(missing, "llm.provider")

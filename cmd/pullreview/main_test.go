@@ -5,24 +5,8 @@ import (
 	"testing"
 )
 
-// resetAllFlags resets all package-level flag vars to defaults between tests.
-func resetAllFlags() {
-	cfgFile = ""
-	prID = ""
-	bbEmail = ""
-	bbAPIToken = ""
-	repoSlug = ""
-	showVersion = false
-	verbose = false
-	postToBB = false
-	skipInline = false
-	localReview = false
-	targetBranch = "main"
-}
-
 func TestValidateFlags_PositionalArgWithoutLocal(t *testing.T) {
-	resetAllFlags()
-	err := validateFlags([]string{"/some/path"})
+	err := validateFlags(false, false, []string{"/some/path"})
 	if err == nil {
 		t.Fatal("expected error when positional arg provided without --local")
 	}
@@ -32,10 +16,7 @@ func TestValidateFlags_PositionalArgWithoutLocal(t *testing.T) {
 }
 
 func TestValidateFlags_PostWithLocal(t *testing.T) {
-	resetAllFlags()
-	localReview = true
-	postToBB = true
-	err := validateFlags(nil)
+	err := validateFlags(true, true, nil)
 	if err == nil {
 		t.Fatal("expected error when --post used with --local")
 	}
@@ -45,36 +26,39 @@ func TestValidateFlags_PostWithLocal(t *testing.T) {
 }
 
 func TestValidateFlags_LocalWithPositionalArg(t *testing.T) {
-	resetAllFlags()
-	localReview = true
-	err := validateFlags([]string{"/some/path"})
+	err := validateFlags(true, false, []string{"/some/path"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestValidateFlags_LocalWithoutArgs(t *testing.T) {
-	resetAllFlags()
-	localReview = true
-	err := validateFlags(nil)
+	err := validateFlags(true, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestValidateFlags_NoFlagsNoArgs(t *testing.T) {
-	resetAllFlags()
-	err := validateFlags(nil)
+	err := validateFlags(false, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestValidateFlags_PostWithoutLocal(t *testing.T) {
-	resetAllFlags()
-	postToBB = true
-	err := validateFlags(nil)
+	err := validateFlags(false, true, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateFlags_PositionalArgHintIncludesPath(t *testing.T) {
+	err := validateFlags(false, false, []string{"/my/repo"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "/my/repo") {
+		t.Errorf("error should include the provided path, got: %v", err)
 	}
 }

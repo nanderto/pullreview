@@ -58,7 +58,7 @@ llm:
 prompt_file: ` + promptFile + `
 `
 	cfgFile := writeTempConfigFile(t, yaml)
-	cfg, err := LoadConfigWithOverrides(cfgFile, "", "", "")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "", "", "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -120,7 +120,7 @@ prompt_file: ` + promptFile + `
 	defer os.Unsetenv("BITBUCKET_BASE_URL")
 	defer os.Unsetenv("LLM_API_KEY")
 
-	cfg, err := LoadConfigWithOverrides(cfgFile, "", "", "")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "", "", "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -177,7 +177,7 @@ prompt_file: ` + promptFile + `
 	defer os.Unsetenv("BITBUCKET_WORKSPACE")
 	defer os.Unsetenv("BITBUCKET_BASE_URL")
 
-	cfg, err := LoadConfigWithOverrides(cfgFile, "cliuser@example.com", "clitoken", "")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "cliuser@example.com", "clitoken", "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -220,7 +220,7 @@ llm:
 prompt_file: ""
 `
 	cfgFile := writeTempConfigFile(t, yaml)
-	_, err := LoadConfigWithOverrides(cfgFile, "", "", "")
+	_, err := LoadConfigWithOverrides(cfgFile, "", "", "", false)
 	if err == nil {
 		t.Fatal("expected error for missing required config, got nil")
 	}
@@ -266,7 +266,7 @@ prompt_file: ` + promptFile + `
 	defer os.Unsetenv("BITBUCKET_WORKSPACE")
 	defer os.Unsetenv("BITBUCKET_BASE_URL")
 
-	cfg, err := LoadConfigWithOverrides(cfgFile, "cliuser@example.com", "clitoken", "")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "cliuser@example.com", "clitoken", "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -283,5 +283,49 @@ prompt_file: ` + promptFile + `
 	}
 	if cfg.Bitbucket.BaseURL != "https://custom.bitbucket.org/api" {
 		t.Errorf("expected env override base_url 'https://custom.bitbucket.org/api', got '%s'", cfg.Bitbucket.BaseURL)
+	}
+}
+
+func TestLoadConfigWithOverrides_SkipBitbucket(t *testing.T) {
+	// Unset all relevant env vars for test isolation
+	os.Unsetenv("BITBUCKET_EMAIL")
+	os.Unsetenv("BITBUCKET_API_TOKEN")
+	os.Unsetenv("BITBUCKET_WORKSPACE")
+	os.Unsetenv("BITBUCKET_BASE_URL")
+	os.Unsetenv("BITBUCKET_REPO_SLUG")
+	os.Unsetenv("LLM_PROVIDER")
+	os.Unsetenv("LLM_API_KEY")
+	os.Unsetenv("LLM_ENDPOINT")
+	os.Unsetenv("PULLREVIEW_PROMPT_FILE")
+
+	tmpDir := t.TempDir()
+	promptFile := writeTempPromptFile(t, tmpDir)
+
+	// Config with LLM settings but NO Bitbucket settings
+	yaml := `
+llm:
+  provider: openai
+  api_key: key1
+  endpoint: https://api.openai.com/v1/chat/completions
+prompt_file: ` + promptFile + `
+`
+	cfgFile := writeTempConfigFile(t, yaml)
+
+	// Without skipBitbucket, this should fail
+	_, err := LoadConfigWithOverrides(cfgFile, "", "", "", false)
+	if err == nil {
+		t.Fatal("expected error when Bitbucket fields missing and skipBitbucket=false")
+	}
+
+	// With skipBitbucket, this should succeed
+	cfg, err := LoadConfigWithOverrides(cfgFile, "", "", "", true)
+	if err != nil {
+		t.Fatalf("unexpected error with skipBitbucket=true: %v", err)
+	}
+	if cfg.LLM.Provider != "openai" {
+		t.Errorf("expected provider 'openai', got '%s'", cfg.LLM.Provider)
+	}
+	if cfg.LLM.APIKey != "key1" {
+		t.Errorf("expected api_key 'key1', got '%s'", cfg.LLM.APIKey)
 	}
 }

@@ -75,11 +75,11 @@ func initConfig() {
 }
 
 // validateFlags checks for invalid flag combinations before execution.
-func validateFlags(args []string) error {
-	if !localReview && len(args) > 0 {
+func validateFlags(isLocal, isPost bool, args []string) error {
+	if !isLocal && len(args) > 0 {
 		return fmt.Errorf("positional arguments are only accepted with --local; did you mean: pullreview --local %s", args[0])
 	}
-	if localReview && postToBB {
+	if isLocal && isPost {
 		return fmt.Errorf("--post cannot be used with --local (no Bitbucket PR to post to)")
 	}
 	return nil
@@ -95,12 +95,13 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 
 	}
 
-	if err := validateFlags(args); err != nil {
+	if err := validateFlags(localReview, postToBB, args); err != nil {
 		return err
 	}
 
 	// Load configuration with overrides from CLI flags
-	cfg, err := config.LoadConfigWithOverrides(cfgFile, bbEmail, bbAPIToken, repoSlug)
+	// Skip Bitbucket validation for local-only reviews
+	cfg, err := config.LoadConfigWithOverrides(cfgFile, bbEmail, bbAPIToken, repoSlug, localReview)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
