@@ -64,10 +64,11 @@ func GetRepoSlugFromGitRemote(repoPath string) (string, error) {
 	return "", err
 }
 
-// GetLocalDiff returns the unified diff of the current branch against main.
-// It uses "git diff main...HEAD" to show changes since the branch diverged from main.
-func GetLocalDiff(repoPath string) (string, error) {
-	cmd := exec.Command("git", "diff", "main...HEAD")
+// GetLocalDiff returns the unified diff of the current branch against a target branch.
+// It uses "git diff <target>...HEAD" to show changes since the branch diverged from the target.
+func GetLocalDiff(repoPath string, targetBranch string) (string, error) {
+	diffRef := targetBranch + "...HEAD"
+	cmd := exec.Command("git", "diff", diffRef)
 	cmd.Dir = repoPath
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -77,7 +78,7 @@ func GetLocalDiff(repoPath string) (string, error) {
 	}
 	diff := stdout.String()
 	if strings.TrimSpace(diff) == "" {
-		return "", fmt.Errorf("no changes found between main and HEAD")
+		return "", fmt.Errorf("no changes found between %s and HEAD", targetBranch)
 	}
 	return diff, nil
 }

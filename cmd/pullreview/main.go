@@ -17,17 +17,18 @@ import (
 )
 
 var (
-	cfgFile     string
-	prID        string
-	bbEmail     string
-	bbAPIToken  string
-	repoSlug    string
-	showVersion bool
-	verbose     bool
-	postToBB    bool
-	skipInline  bool
-	localReview string
-	version     = "0.1.0"
+	cfgFile      string
+	prID         string
+	bbEmail      string
+	bbAPIToken   string
+	repoSlug     string
+	showVersion  bool
+	verbose      bool
+	postToBB     bool
+	skipInline   bool
+	localReview  string
+	targetBranch string
+	version      = "0.1.0"
 )
 
 func main() {
@@ -57,8 +58,12 @@ func main() {
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.Flags().BoolVar(&postToBB, "post", false, "Post comments to Bitbucket (default: false, just print comments)")
 	rootCmd.Flags().BoolVar(&skipInline, "skip-inline", false, "Skip interactive prompt (non-interactive mode)")
-	rootCmd.Flags().StringVar(&localReview, "local", "", "Review local branch changes against main (optional: path to repo folder)")
+	rootCmd.Flags().StringVar(&localReview, "local", "", "Review local branch changes against target branch (optional: path to repo folder)")
+	// NoOptDefVal allows --local without a value (defaults to "."/cwd).
+	// With a value, use --local=/path or --local /path (the latter is
+	// handled via positional arg fallback in runPullReview).
 	rootCmd.Flag("local").NoOptDefVal = "."
+	rootCmd.Flags().StringVar(&targetBranch, "target", "main", "Target branch to diff against when using --local")
 
 	cobra.OnInitialize(initConfig)
 
@@ -114,9 +119,9 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("could not infer git branch: %w", err)
 		}
-		fmt.Printf("🔎 Reviewing local branch: %s\n", branch)
+		fmt.Printf("🔎 Reviewing local branch: %s (against %s)\n", branch, targetBranch)
 
-		diff, err = utils.GetLocalDiff(repoPath)
+		diff, err = utils.GetLocalDiff(repoPath, targetBranch)
 		if err != nil {
 			return fmt.Errorf("could not get local diff: %w", err)
 		}
