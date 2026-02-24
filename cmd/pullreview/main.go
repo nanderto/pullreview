@@ -128,7 +128,7 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("could not get local diff: %w", err)
 		}
 		if strings.TrimSpace(diff) == "" {
-			fmt.Printf("ℹ️  No changes found between %s and HEAD — branch is up to date.\n", targetBranch)
+			fmt.Printf("ℹ️  No changes to review — HEAD has no unique commits since branching from %s.\n", targetBranch)
 			return nil
 		}
 		fmt.Printf("✅ Got local diff (length: %d bytes)\n", len(diff))
