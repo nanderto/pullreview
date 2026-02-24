@@ -26,6 +26,7 @@ var (
 	verbose     bool
 	postToBB    bool
 	skipInline  bool
+	localReview string
 	version     = "0.1.0"
 )
 
@@ -56,6 +57,8 @@ func main() {
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.Flags().BoolVar(&postToBB, "post", false, "Post comments to Bitbucket (default: false, just print comments)")
 	rootCmd.Flags().BoolVar(&skipInline, "skip-inline", false, "Skip interactive prompt (non-interactive mode)")
+	rootCmd.Flags().StringVar(&localReview, "local", "", "Review local branch changes against main (optional: path to repo folder)")
+	rootCmd.Flag("local").NoOptDefVal = "."
 
 	cobra.OnInitialize(initConfig)
 
@@ -80,101 +83,124 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load configuration with overrides from CLI flags
-
 	cfg, err := config.LoadConfigWithOverrides(cfgFile, bbEmail, bbAPIToken, repoSlug)
-
 	if err != nil {
-
 		return fmt.Errorf("failed to load config: %w", err)
-
 	}
 
-	// Initialize Bitbucket client and attempt authentication
+	var diff string
+	var finalPRID string
+	var bbClient *bitbucket.Client
 
-	bbClient := bitbucket.NewClient(
-		cfg.Bitbucket.Email,
-		cfg.Bitbucket.APIToken,
-		cfg.Bitbucket.Workspace,
-		cfg.Bitbucket.RepoSlug,
-		cfg.Bitbucket.BaseURL,
-	)
-
-	if err := bbClient.Authenticate(); err != nil {
-
-		fmt.Fprintf(os.Stderr, "❌ Bitbucket login failed: %v\n", err)
-
-		if cfg.Bitbucket.APIToken == "" {
-
-			fmt.Fprintln(os.Stderr, "  - Missing Bitbucket API token (set in config, env, or CLI flag)")
-
+	if localReview != "" {
+		// Local branch review: get diff from git, skip Bitbucket entirely
+		repoPath := localReview
+		// When --local is used without "=", the path ends up as a positional arg
+		if repoPath == "." && len(args) > 0 {
+			repoPath = args[0]
 		}
-
-		if cfg.Bitbucket.Workspace == "" {
-
-			fmt.Fprintln(os.Stderr, "  - Missing Bitbucket workspace (set in config, env, or CLI flag)")
-
-		}
-
-		return fmt.Errorf("could not authenticate with Bitbucket")
-
-	}
-
-	fmt.Printf("✅ Successfully authenticated with Bitbucket (workspace: %s)\n", cfg.Bitbucket.Workspace)
-
-	// Determine PR ID: use CLI flag if provided, else infer from git branch
-	finalPRID := prID
-	if finalPRID == "" {
-		// Try to infer from git branch
-		repoPath, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("could not determine working directory: %w", err)
+		if repoPath == "." {
+			repoPath, err = os.Getwd()
+			if err != nil {
+				return fmt.Errorf("could not determine working directory: %w", err)
+			}
+		} else {
+			repoPath, err = filepath.Abs(repoPath)
+			if err != nil {
+				return fmt.Errorf("could not resolve path %q: %w", repoPath, err)
+			}
 		}
 		branch, err := utils.GetCurrentGitBranch(repoPath)
 		if err != nil {
 			return fmt.Errorf("could not infer git branch: %w", err)
 		}
-		fmt.Printf("🔎 Inferred branch: %s\n", branch)
-		finalPRID, err = bbClient.GetPRIDByBranch(branch)
+		fmt.Printf("🔎 Reviewing local branch: %s\n", branch)
+
+		diff, err = utils.GetLocalDiff(repoPath)
 		if err != nil {
-			return fmt.Errorf("could not find open PR for branch %q: %w", branch, err)
-
+			return fmt.Errorf("could not get local diff: %w", err)
 		}
-		fmt.Printf("🔎 Inferred PR ID: %s\n", finalPRID)
+		fmt.Printf("✅ Got local diff (length: %d bytes)\n", len(diff))
+
+		if verbose {
+			fmt.Println("------ BEGIN LOCAL DIFF ------")
+			fmt.Println(diff)
+			fmt.Println("------- END LOCAL DIFF -------")
+		}
 	} else {
-		fmt.Printf("ℹ️ Using provided PR ID: %s\n", finalPRID)
-	}
+		// Bitbucket PR review: existing flow
+		bbClient = bitbucket.NewClient(
+			cfg.Bitbucket.Email,
+			cfg.Bitbucket.APIToken,
+			cfg.Bitbucket.Workspace,
+			cfg.Bitbucket.RepoSlug,
+			cfg.Bitbucket.BaseURL,
+		)
 
-	// Fetch PR metadata
-	prMetaBytes, err := bbClient.GetPRMetadata(finalPRID)
-	if err != nil {
-		return fmt.Errorf("failed to fetch PR metadata: %w", err)
-	}
-	fmt.Printf("✅ Fetched PR metadata for PR #%s\n", finalPRID)
+		if err := bbClient.Authenticate(); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ Bitbucket login failed: %v\n", err)
+			if cfg.Bitbucket.APIToken == "" {
+				fmt.Fprintln(os.Stderr, "  - Missing Bitbucket API token (set in config, env, or CLI flag)")
+			}
+			if cfg.Bitbucket.Workspace == "" {
+				fmt.Fprintln(os.Stderr, "  - Missing Bitbucket workspace (set in config, env, or CLI flag)")
+			}
+			return fmt.Errorf("could not authenticate with Bitbucket")
+		}
+		fmt.Printf("✅ Successfully authenticated with Bitbucket (workspace: %s)\n", cfg.Bitbucket.Workspace)
 
-	// Parse and print PR title and description
-	type prMetaStruct struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-	}
-	var prMeta prMetaStruct
-	if err := json.Unmarshal(prMetaBytes, &prMeta); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not parse PR metadata JSON: %v\n", err)
-	} else {
-		fmt.Printf("🔖 PR Title: %s\n", prMeta.Title)
-		fmt.Printf("📝 PR Description: %s\n", prMeta.Description)
-	}
+		// Determine PR ID: use CLI flag if provided, else infer from git branch
+		finalPRID = prID
+		if finalPRID == "" {
+			repoPath, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("could not determine working directory: %w", err)
+			}
+			branch, err := utils.GetCurrentGitBranch(repoPath)
+			if err != nil {
+				return fmt.Errorf("could not infer git branch: %w", err)
+			}
+			fmt.Printf("🔎 Inferred branch: %s\n", branch)
+			finalPRID, err = bbClient.GetPRIDByBranch(branch)
+			if err != nil {
+				return fmt.Errorf("could not find open PR for branch %q: %w", branch, err)
+			}
+			fmt.Printf("🔎 Inferred PR ID: %s\n", finalPRID)
+		} else {
+			fmt.Printf("ℹ️ Using provided PR ID: %s\n", finalPRID)
+		}
 
-	// Fetch PR diff
-	diff, err := bbClient.GetPRDiff(finalPRID)
-	if err != nil {
-		return fmt.Errorf("failed to fetch PR diff: %w", err)
-	}
-	fmt.Printf("✅ Fetched PR diff for PR #%s (length: %d bytes)\n", finalPRID, len(diff))
+		// Fetch PR metadata
+		prMetaBytes, err := bbClient.GetPRMetadata(finalPRID)
+		if err != nil {
+			return fmt.Errorf("failed to fetch PR metadata: %w", err)
+		}
+		fmt.Printf("✅ Fetched PR metadata for PR #%s\n", finalPRID)
 
-	if verbose {
-		fmt.Println("------ BEGIN PR DIFF ------")
-		fmt.Println(diff)
-		fmt.Println("------- END PR DIFF -------")
+		type prMetaStruct struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		}
+		var prMeta prMetaStruct
+		if err := json.Unmarshal(prMetaBytes, &prMeta); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not parse PR metadata JSON: %v\n", err)
+		} else {
+			fmt.Printf("🔖 PR Title: %s\n", prMeta.Title)
+			fmt.Printf("📝 PR Description: %s\n", prMeta.Description)
+		}
+
+		// Fetch PR diff
+		diff, err = bbClient.GetPRDiff(finalPRID)
+		if err != nil {
+			return fmt.Errorf("failed to fetch PR diff: %w", err)
+		}
+		fmt.Printf("✅ Fetched PR diff for PR #%s (length: %d bytes)\n", finalPRID, len(diff))
+
+		if verbose {
+			fmt.Println("------ BEGIN PR DIFF ------")
+			fmt.Println(diff)
+			fmt.Println("------- END PR DIFF -------")
+		}
 	}
 
 	// Initialize LLM client
@@ -256,6 +282,11 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 				fmt.Printf("[%s:%d]\n%s\n\n", cmt.FilePath, cmt.Line, cmt.Text)
 			}
 		}
+	}
+
+	// Skip Bitbucket posting for local reviews
+	if localReview != "" {
+		return nil
 	}
 
 	// Determine if we should post based on skip-inline flag and user confirmation

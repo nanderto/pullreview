@@ -64,6 +64,24 @@ func GetRepoSlugFromGitRemote(repoPath string) (string, error) {
 	return "", err
 }
 
+// GetLocalDiff returns the unified diff of the current branch against main.
+// It uses "git diff main...HEAD" to show changes since the branch diverged from main.
+func GetLocalDiff(repoPath string) (string, error) {
+	cmd := exec.Command("git", "diff", "main...HEAD")
+	cmd.Dir = repoPath
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("git diff failed: %s: %w", strings.TrimSpace(stderr.String()), err)
+	}
+	diff := stdout.String()
+	if strings.TrimSpace(diff) == "" {
+		return "", fmt.Errorf("no changes found between main and HEAD")
+	}
+	return diff, nil
+}
+
 // PromptYesNo prompts the user with a yes/no question and returns true if yes, false otherwise.
 // The defaultAnswer parameter determines what happens on empty input ("y" or "n").
 func PromptYesNo(question string, defaultAnswer string) (bool, error) {
