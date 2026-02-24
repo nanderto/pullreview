@@ -17,6 +17,7 @@ pullreview.exe --repo bitbucket_repo_name --pr 89 --verbose
 ## Features
 
 - **Bitbucket Cloud Integration:** Fetches pull request diffs and posts comments using Bitbucket’s REST API.
+- **Local Branch Review:** Review local branch changes against a target branch (e.g., `main`) without needing a Bitbucket PR, using the `--local` flag.
 - **LLM-Powered Reviews:** Sends diffs to a configurable LLM (OpenAI, Claude, Copilot, etc.) for automated code review.
 - **Customizable Prompts:** Users can edit the prompt template to control the review style and focus.
 - **Flexible Authentication:** Supports credentials via config file, command-line flags, or environment variables.
@@ -174,6 +175,8 @@ The following environment variables are supported and override values from the c
 - `--token` - Bitbucket API token (overrides config/env)
 - `--post` - Enable posting to Bitbucket when used with `--skip-inline` (default: false)
 - `--skip-inline` - Skip interactive confirmation prompt (non-interactive mode)
+- `--local` - Review local branch changes against target branch (no Bitbucket PR required; optional positional arg: path to repo folder)
+- `--target` - Target branch to diff against when using `--local` (default: `main`)
 - `--verbose`, `-v` - Enable verbose output (shows full diff and API details)
 - `--version` - Show version and exit
 
@@ -212,6 +215,26 @@ To automatically post without prompting (useful for CI/CD):
 ./pullreview.exe --post --skip-inline
 ```
 
+### Local Branch Review (No PR Required)
+
+Review your current branch against `main` without a Bitbucket PR:
+
+```sh
+./pullreview --local
+```
+
+Review a specific repo folder:
+
+```sh
+./pullreview --local /path/to/repo
+```
+
+Review against a different target branch:
+
+```sh
+./pullreview --local --target develop
+```
+
 ### Specify a PR ID
 
 ```sh
@@ -237,6 +260,9 @@ To automatically post without prompting (useful for CI/CD):
 | `pullreview --skip-inline` | Shows review only, no prompt, no posting |
 | `pullreview --post --skip-inline` | Shows review and auto-posts (no prompt) |
 | `pullreview --pr 123` | Review specific PR #123 |
+| `pullreview --local` | Review current branch against main (no Bitbucket needed) |
+| `pullreview --local /path/to/repo` | Review a specific repo's branch against main |
+| `pullreview --local --target develop` | Review current branch against develop |
 | `pullreview --verbose` | Show full diff and detailed API output |
 
 ---
