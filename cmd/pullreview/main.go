@@ -75,12 +75,15 @@ func initConfig() {
 }
 
 // validateFlags checks for invalid flag combinations before execution.
-func validateFlags(isLocal, isPost bool, args []string) error {
+func validateFlags(isLocal, isPost bool, prID string, args []string) error {
 	if !isLocal && len(args) > 0 {
 		return fmt.Errorf("positional arguments are only accepted with --local; did you mean: pullreview --local %s", args[0])
 	}
 	if isLocal && isPost {
 		return fmt.Errorf("--post cannot be used with --local (no Bitbucket PR to post to)")
+	}
+	if isLocal && prID != "" {
+		return fmt.Errorf("--pr cannot be used with --local (local reviews do not use Bitbucket PRs)")
 	}
 	return nil
 }
@@ -95,7 +98,7 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 
 	}
 
-	if err := validateFlags(localReview, postToBB, args); err != nil {
+	if err := validateFlags(localReview, postToBB, prID, args); err != nil {
 		return err
 	}
 
