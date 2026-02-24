@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -124,6 +125,138 @@ func TestGetRepoSlugFromGitRemote_WeirdURL(t *testing.T) {
 	}
 	if got != repoSlug {
 		t.Errorf("expected repo slug %q, got %q", repoSlug, got)
+	}
+}
+
+func TestGetLocalDiff_WithChanges(t *testing.T) {
+	// Set up a repo on main with initial commit, then create a feature branch with changes
+	repoDir := setupTestRepo(t, "main", "")
+
+	// Create a feature branch
+	cmd := exec.Command("git", "checkout", "-b", "feature-branch")
+	cmd.Dir = repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to create feature branch: %v\n%s", err, out)
+	}
+
+	// Add a new file and commit on the feature branch
+	newFile := filepath.Join(repoDir, "feature.txt")
+	if err := os.WriteFile(newFile, []byte("new feature\n"), 0644); err != nil {
+		t.Fatalf("failed to write feature file: %v", err)
+	}
+	cmd = exec.Command("git", "add", "feature.txt")
+	cmd.Dir = repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to git add: %v\n%s", err, out)
+	}
+	cmd = exec.Command("git", "commit", "-m", "add feature")
+	cmd.Dir = repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to git commit: %v\n%s", err, out)
+	}
+
+	diff, err := GetLocalDiff(repoDir, "main")
+	if err != nil {
+		t.Fatalf("GetLocalDiff failed: %v", err)
+	}
+	if diff == "" {
+		t.Error("expected non-empty diff, got empty string")
+	}
+	if !strings.Contains(diff, "feature.txt") {
+		t.Errorf("expected diff to contain 'feature.txt', got:\n%s", diff)
+	}
+}
+
+func TestGetLocalDiff_NoChanges(t *testing.T) {
+	// On main with no diverged branch — diff against self should be empty
+	repoDir := setupTestRepo(t, "main", "")
+
+	diff, err := GetLocalDiff(repoDir, "main")
+	if err != nil {
+		t.Fatalf("GetLocalDiff should not error on empty diff: %v", err)
+	}
+	if strings.TrimSpace(diff) != "" {
+		t.Errorf("expected empty diff, got:\n%s", diff)
+	}
+}
+
+func TestGetLocalDiff_InvalidTargetBranch(t *testing.T) {
+	repoDir := setupTestRepo(t, "main", "")
+
+	_, err := GetLocalDiff(repoDir, "nonexistent-branch")
+	if err == nil {
+		t.Error("expected error for nonexistent target branch, got nil")
+	}
+	if !strings.Contains(err.Error(), "nonexistent-branch") {
+		t.Errorf("expected error to mention branch name, got: %v", err)
+	}
+}
+
+func TestGetLocalDiff_NotAGitRepo(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := GetLocalDiff(dir, "main")
+	if err == nil {
+		t.Error("expected error for non-git directory, got nil")
+	}
+}
+
+func TestGetLocalDiff_CustomTargetBranch(t *testing.T) {
+	// Set up repo, create a "develop" branch, then a feature branch off it
+	repoDir := setupTestRepo(t, "main", "")
+
+	// Create develop branch with an extra commit
+	cmd := exec.Command("git", "checkout", "-b", "develop")
+	cmd.Dir = repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to create develop branch: %v\n%s", err, out)
+	}
+	devFile := filepath.Join(repoDir, "develop.txt")
+	if err := os.WriteFile(devFile, []byte("develop\n"), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+	cmd = exec.Command("git", "add", "develop.txt")
+	cmd.Dir = repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to git add: %v\n%s", err, out)
+	}
+	cmd = exec.Command("git", "commit", "-m", "develop commit")
+	cmd.Dir = repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to git commit: %v\n%s", err, out)
+	}
+
+	// Create feature branch off develop
+	cmd = exec.Command("git", "checkout", "-b", "feature-from-develop")
+	cmd.Dir = repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to create feature branch: %v\n%s", err, out)
+	}
+	featFile := filepath.Join(repoDir, "feature2.txt")
+	if err := os.WriteFile(featFile, []byte("feature from develop\n"), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+	cmd = exec.Command("git", "add", "feature2.txt")
+	cmd.Dir = repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to git add: %v\n%s", err, out)
+	}
+	cmd = exec.Command("git", "commit", "-m", "feature from develop")
+	cmd.Dir = repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to git commit: %v\n%s", err, out)
+	}
+
+	// Diff against develop should only show feature2.txt, not develop.txt
+	diff, err := GetLocalDiff(repoDir, "develop")
+	if err != nil {
+		t.Fatalf("GetLocalDiff failed: %v", err)
+	}
+	if !strings.Contains(diff, "feature2.txt") {
+		t.Errorf("expected diff to contain 'feature2.txt', got:\n%s", diff)
+	}
+	if strings.Contains(diff, "develop.txt") {
+		t.Errorf("diff should not contain 'develop.txt' when diffing against develop, got:\n%s", diff)
 	}
 }
 
