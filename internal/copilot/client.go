@@ -47,14 +47,17 @@ func CheckCLIAvailable() error {
 }
 
 // checkAuth verifies that the Copilot CLI is authenticated by running a test prompt.
-// It checks both the exit code and stderr output, since some Copilot CLI versions
-// exit with code 0 even on auth failure.
+// It checks both the exit code and stdout output, since some Copilot CLI versions
+// exit with code 0 even on auth failure (but always produce empty stdout).
 func checkAuth() error {
 	cmd := exec.Command("copilot", "-p", "hello")
-	var stderr bytes.Buffer
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	if err != nil || stderr.Len() > 0 {
+	// Non-zero exit code means auth failed; empty stdout with exit code 0
+	// also indicates auth failure (some CLI versions exit 0 on auth errors).
+	if err != nil || stdout.Len() == 0 {
 		return fmt.Errorf("copilot auth check failed: %s", strings.TrimSpace(stderr.String()))
 	}
 	return nil
