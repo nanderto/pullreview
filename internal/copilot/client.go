@@ -1,10 +1,12 @@
 package copilot
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -45,10 +47,15 @@ func CheckCLIAvailable() error {
 }
 
 // checkAuth verifies that the Copilot CLI is authenticated by running a test prompt.
+// It checks both the exit code and stderr output, since some Copilot CLI versions
+// exit with code 0 even on auth failure.
 func checkAuth() error {
-	output, err := exec.Command("copilot", "-p", "hello").CombinedOutput()
-	if err != nil {
-		return errors.New(string(output))
+	cmd := exec.Command("copilot", "-p", "hello")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil || stderr.Len() > 0 {
+		return fmt.Errorf("copilot auth check failed: %s", strings.TrimSpace(stderr.String()))
 	}
 	return nil
 }
