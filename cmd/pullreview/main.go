@@ -32,13 +32,21 @@ var (
 )
 
 func main() {
-	// Try to find config file next to the binary (optional)
+	// Try to find config file: cwd first, then next to the binary (optional)
 	defaultConfig := ""
-	if exePath, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exePath)
-		configPath := filepath.Join(exeDir, "pullreview.yaml")
+	if cwd, err := os.Getwd(); err == nil {
+		configPath := filepath.Join(cwd, "pullreview.yaml")
 		if _, err := os.Stat(configPath); err == nil {
 			defaultConfig = configPath
+		}
+	}
+	if defaultConfig == "" {
+		if exePath, err := os.Executable(); err == nil {
+			exeDir := filepath.Dir(exePath)
+			configPath := filepath.Join(exeDir, "pullreview.yaml")
+			if _, err := os.Stat(configPath); err == nil {
+				defaultConfig = configPath
+			}
 		}
 	}
 
