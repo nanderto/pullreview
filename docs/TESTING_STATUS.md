@@ -41,6 +41,7 @@ This document tracks which commands and flags have been **actually tested on rea
 | Language | Detection | Build | Tests | Tested On Real PRs | Status |
 |----------|-----------|-------|-------|-------------------|--------|
 | **C#** | ✅ | ✅ dotnet build | ✅ dotnet test | menuplanning-api, bhunter | ✅ FULLY WORKING |
+| **JavaScript/TypeScript** | ✅ | npm/yarn/pnpm run build | npm/yarn/pnpm test | Not tested on real JS PR | ⚠️ NOT TESTED |
 | **Go** | ✅ | go build | go test | Not tested on real Go PR | ⚠️ NOT TESTED |
 
 ---

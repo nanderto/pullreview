@@ -9,7 +9,7 @@
 | 3 | Git Operations | ✅ Complete | 2026-02-12 |
 | 4 | Stacked PR Creation | ✅ Complete | 2026-02-12 |
 | 5 | CLI Implementation | ✅ Complete | 2026-02-13 |
-| 6 | Multi-Language Support | ✅ Complete (Go, C#) | 2026-02-14 |
+| 6 | Multi-Language Support | ✅ Complete (Go, C#, JS/TS) | 2026-02-14 |
 | 7 | Testing & Hardening | ⏳ In Progress | - |
 
 ---
@@ -34,6 +34,7 @@ The `pullreview` tool now supports automated code fixing with stacked PR creatio
 - **Auto-detects** project language(s) (Go, C#)
 - **Go**: `gofmt`, `go vet`, `go build`, `go test`
 - **C#**: `dotnet build`, `dotnet test`
+- **JavaScript/TypeScript**: `npm/yarn/pnpm install`, `run lint`, `run build`, `test` (auto-detects package manager; framework-agnostic)
 - **Configurable**: Enable/disable build, test, lint per language
 
 ✅ **Key Features**
@@ -47,7 +48,7 @@ The `pullreview` tool now supports automated code fixing with stacked PR creatio
 
 ## Current Status
 
-**Phase 6 Complete**: Multi-language architecture implemented for Go and C#. System is extensible for additional languages.
+**Phase 6 Complete**: Multi-language architecture implemented for Go, C#, and JavaScript/TypeScript. System is extensible for additional languages.
 
 **Phase 7 In Progress**: Testing & hardening. See `docs/TESTING_STATUS.md` for real PR test results.
 
@@ -140,7 +141,7 @@ The `pullreview` tool now supports automated code fixing with stacked PR creatio
 
 ---
 
-### Phase 6: Multi-Language Support ✅ COMPLETE (Go, C#)
+### Phase 6: Multi-Language Support ✅ COMPLETE (Go, C#, JS/TS)
 
 **Implemented**:
 - ✅ Language detector (`internal/verify/detector.go`)
@@ -171,10 +172,6 @@ The `pullreview` tool now supports automated code fixing with stacked PR creatio
 3. Add case to `switch` in `RunAll()`
 
 **Future Languages** (not yet implemented):
-- JavaScript/TypeScript (`javascript_verifier.go`)
-  - Detects: `package.json`, `*.js`, `*.ts`, `*.jsx`, `*.tsx`
-  - Runs: `npm install`, `npm run build`, `npm test`, `npm run lint`
-  - **Single verifier handles all JS frameworks** (Angular, React, Svelte, Vue, etc.)
 - Python (`python_verifier.go`)
   - Detects: `*.py`, `requirements.txt`, `setup.py`, `pyproject.toml`
   - Runs: `pylint`, `pytest`, `mypy`
@@ -357,7 +354,7 @@ CI=true pullreview fix-pr --pr 123
 **Phase 7**: Complete testing & hardening
 - Add unit tests for all components
 - Test on real Go PRs
-- Add JavaScript/TypeScript verifier for broader language support
+- Test on real JavaScript/TypeScript PRs
 
 ---
 

@@ -89,6 +89,8 @@ func (v *Verifier) RunAll() (*VerificationResult, error) {
 		return v.runCSharpVerification()
 	case "go":
 		return v.runGoVerification()
+	case "javascript", "typescript":
+		return v.runJavaScriptVerification()
 	default:
 		// For unsupported languages, skip verification
 		if v.config.Verbose {
@@ -107,6 +109,15 @@ func (v *Verifier) RunAll() (*VerificationResult, error) {
 // runCSharpVerification runs C# specific verification.
 func (v *Verifier) runCSharpVerification() (*VerificationResult, error) {
 	verifier := NewCSharpVerifier(v.config.RepoPath, v.config.Verbose, v.config)
+	return verifier.Verify()
+}
+
+// runJavaScriptVerification runs JavaScript/TypeScript specific verification.
+func (v *Verifier) runJavaScriptVerification() (*VerificationResult, error) {
+	verifier, err := NewJavaScriptVerifier(v.config.RepoPath, v.config.Verbose, v.config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create JavaScript verifier: %w", err)
+	}
 	return verifier.Verify()
 }
 
