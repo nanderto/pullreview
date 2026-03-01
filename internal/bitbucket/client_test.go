@@ -3,7 +3,7 @@ package bitbucket
 import (
 	"bytes"
 	"context"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"testing"
 )
@@ -19,12 +19,12 @@ type mockRoundTripper struct {
 func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	m.lastRequest = req
 	if req.Body != nil {
-		body, _ := ioutil.ReadAll(req.Body)
+		body, _ := io.ReadAll(req.Body)
 		m.lastBody = body
 	}
 	resp := &http.Response{
 		StatusCode: m.responseCode,
-		Body:       ioutil.NopCloser(bytes.NewBufferString(m.responseBody)),
+		Body:       io.NopCloser(bytes.NewBufferString(m.responseBody)),
 		Header:     make(http.Header),
 	}
 	return resp, nil

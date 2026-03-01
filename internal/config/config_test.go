@@ -20,6 +20,17 @@ func writeTempConfigFile(t *testing.T, content string) string {
 	return tmpFile
 }
 
+// Helper to write a temporary prompt file for testing.
+func writeTempPromptFile(t *testing.T, dir string) string {
+	t.Helper()
+	promptFile := filepath.Join(dir, "prompt.md")
+	content := "Test prompt template (DIFF_CONTENT_HERE)"
+	if err := os.WriteFile(promptFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write temp prompt file: %v", err)
+	}
+	return promptFile
+}
+
 func TestLoadConfigWithOverrides_YAMLOnly(t *testing.T) {
 	// Unset all relevant env vars for test isolation
 	os.Unsetenv("BITBUCKET_EMAIL")
@@ -31,6 +42,9 @@ func TestLoadConfigWithOverrides_YAMLOnly(t *testing.T) {
 	os.Unsetenv("LLM_ENDPOINT")
 	os.Unsetenv("PULLREVIEW_PROMPT_FILE")
 
+	tmpDir := t.TempDir()
+	promptFile := writeTempPromptFile(t, tmpDir)
+
 	yaml := `
 bitbucket:
   email: user@example.com
@@ -41,10 +55,10 @@ llm:
   provider: openai
   api_key: key1
   endpoint: https://api.openai.com/v1/chat/completions
-prompt_file: prompt.md
+prompt_file: ` + promptFile + `
 `
 	cfgFile := writeTempConfigFile(t, yaml)
-	cfg, err := LoadConfigWithOverrides(cfgFile, "", "")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "", "", "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -63,8 +77,8 @@ prompt_file: prompt.md
 	if cfg.LLM.Provider != "openai" {
 		t.Errorf("expected provider 'openai', got '%s'", cfg.LLM.Provider)
 	}
-	if cfg.PromptFile != "prompt.md" {
-		t.Errorf("expected prompt_file 'prompt.md', got '%s'", cfg.PromptFile)
+	if cfg.PromptFile != promptFile {
+		t.Errorf("expected prompt_file '%s', got '%s'", promptFile, cfg.PromptFile)
 	}
 }
 
@@ -79,6 +93,9 @@ func TestLoadConfigWithOverrides_EnvOverride(t *testing.T) {
 	os.Unsetenv("LLM_ENDPOINT")
 	os.Unsetenv("PULLREVIEW_PROMPT_FILE")
 
+	tmpDir := t.TempDir()
+	promptFile := writeTempPromptFile(t, tmpDir)
+
 	yaml := `
 bitbucket:
   email: user@example.com
@@ -89,7 +106,7 @@ llm:
   provider: openai
   api_key: key1
   endpoint: https://api.openai.com/v1/chat/completions
-prompt_file: prompt.md
+prompt_file: ` + promptFile + `
 `
 	cfgFile := writeTempConfigFile(t, yaml)
 	os.Setenv("BITBUCKET_EMAIL", "envuser@example.com")
@@ -103,7 +120,7 @@ prompt_file: prompt.md
 	defer os.Unsetenv("BITBUCKET_BASE_URL")
 	defer os.Unsetenv("LLM_API_KEY")
 
-	cfg, err := LoadConfigWithOverrides(cfgFile, "", "")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "", "", "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -135,6 +152,9 @@ func TestLoadConfigWithOverrides_CLIOverride(t *testing.T) {
 	os.Unsetenv("LLM_ENDPOINT")
 	os.Unsetenv("PULLREVIEW_PROMPT_FILE")
 
+	tmpDir := t.TempDir()
+	promptFile := writeTempPromptFile(t, tmpDir)
+
 	yaml := `
 bitbucket:
   email: user@example.com
@@ -145,7 +165,7 @@ llm:
   provider: openai
   api_key: key1
   endpoint: https://api.openai.com/v1/chat/completions
-prompt_file: prompt.md
+prompt_file: ` + promptFile + `
 `
 	cfgFile := writeTempConfigFile(t, yaml)
 	os.Setenv("BITBUCKET_EMAIL", "envuser@example.com")
@@ -157,7 +177,7 @@ prompt_file: prompt.md
 	defer os.Unsetenv("BITBUCKET_WORKSPACE")
 	defer os.Unsetenv("BITBUCKET_BASE_URL")
 
-	cfg, err := LoadConfigWithOverrides(cfgFile, "cliuser@example.com", "clitoken")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "cliuser@example.com", "clitoken", "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -200,7 +220,7 @@ llm:
 prompt_file: ""
 `
 	cfgFile := writeTempConfigFile(t, yaml)
-	_, err := LoadConfigWithOverrides(cfgFile, "", "")
+	_, err := LoadConfigWithOverrides(cfgFile, "", "", "", false)
 	if err == nil {
 		t.Fatal("expected error for missing required config, got nil")
 	}
@@ -221,6 +241,9 @@ func TestLoadConfigWithOverrides_EnvAndCLIPrecedence(t *testing.T) {
 	os.Unsetenv("LLM_ENDPOINT")
 	os.Unsetenv("PULLREVIEW_PROMPT_FILE")
 
+	tmpDir := t.TempDir()
+	promptFile := writeTempPromptFile(t, tmpDir)
+
 	yaml := `
 bitbucket:
   email: user@example.com
@@ -231,7 +254,7 @@ llm:
   provider: openai
   api_key: key1
   endpoint: https://api.openai.com/v1/chat/completions
-prompt_file: prompt.md
+prompt_file: ` + promptFile + `
 `
 	cfgFile := writeTempConfigFile(t, yaml)
 	os.Setenv("BITBUCKET_EMAIL", "envuser@example.com")
@@ -243,7 +266,7 @@ prompt_file: prompt.md
 	defer os.Unsetenv("BITBUCKET_WORKSPACE")
 	defer os.Unsetenv("BITBUCKET_BASE_URL")
 
-	cfg, err := LoadConfigWithOverrides(cfgFile, "cliuser@example.com", "clitoken")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "cliuser@example.com", "clitoken", "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -297,6 +320,9 @@ func TestAutoFixConfig(t *testing.T) {
 	os.Unsetenv("LLM_PROVIDER")
 	os.Unsetenv("LLM_API_KEY")
 
+	tmpDir := t.TempDir()
+	promptFile := writeTempPromptFile(t, tmpDir)
+
 	yaml := `
 bitbucket:
   email: user@example.com
@@ -306,7 +332,7 @@ llm:
   provider: openai
   api_key: key1
   endpoint: https://api.openai.com/v1
-prompt_file: prompt.md
+prompt_file: ` + promptFile + `
 autofix:
   enabled: true
   auto_create_pr: true
@@ -322,7 +348,7 @@ autofix:
   pr_description_template: "Fixed issues"
 `
 	cfgFile := writeTempConfigFile(t, yaml)
-	cfg, err := LoadConfigWithOverrides(cfgFile, "", "")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "", "", "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -370,6 +396,9 @@ func TestAutoFixConfigDefaults(t *testing.T) {
 	os.Unsetenv("LLM_PROVIDER")
 	os.Unsetenv("LLM_API_KEY")
 
+	tmpDir := t.TempDir()
+	promptFile := writeTempPromptFile(t, tmpDir)
+
 	yaml := `
 bitbucket:
   email: user@example.com
@@ -379,10 +408,10 @@ llm:
   provider: openai
   api_key: key1
   endpoint: https://api.openai.com/v1
-prompt_file: prompt.md
+prompt_file: ` + promptFile + `
 `
 	cfgFile := writeTempConfigFile(t, yaml)
-	cfg, err := LoadConfigWithOverrides(cfgFile, "", "")
+	cfg, err := LoadConfigWithOverrides(cfgFile, "", "", "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -393,5 +422,49 @@ prompt_file: prompt.md
 	}
 	if cfg.AutoFix.MaxIterations != 0 {
 		t.Errorf("expected autofix.max_iterations=0 by default, got %d", cfg.AutoFix.MaxIterations)
+	}
+}
+
+func TestLoadConfigWithOverrides_SkipBitbucket(t *testing.T) {
+	// Unset all relevant env vars for test isolation
+	os.Unsetenv("BITBUCKET_EMAIL")
+	os.Unsetenv("BITBUCKET_API_TOKEN")
+	os.Unsetenv("BITBUCKET_WORKSPACE")
+	os.Unsetenv("BITBUCKET_BASE_URL")
+	os.Unsetenv("BITBUCKET_REPO_SLUG")
+	os.Unsetenv("LLM_PROVIDER")
+	os.Unsetenv("LLM_API_KEY")
+	os.Unsetenv("LLM_ENDPOINT")
+	os.Unsetenv("PULLREVIEW_PROMPT_FILE")
+
+	tmpDir := t.TempDir()
+	promptFile := writeTempPromptFile(t, tmpDir)
+
+	// Config with LLM settings but NO Bitbucket settings
+	yaml := `
+llm:
+  provider: openai
+  api_key: key1
+  endpoint: https://api.openai.com/v1/chat/completions
+prompt_file: ` + promptFile + `
+`
+	cfgFile := writeTempConfigFile(t, yaml)
+
+	// Without skipBitbucket, this should fail
+	_, err := LoadConfigWithOverrides(cfgFile, "", "", "", false)
+	if err == nil {
+		t.Fatal("expected error when Bitbucket fields missing and skipBitbucket=false")
+	}
+
+	// With skipBitbucket, this should succeed
+	cfg, err := LoadConfigWithOverrides(cfgFile, "", "", "", true)
+	if err != nil {
+		t.Fatalf("unexpected error with skipBitbucket=true: %v", err)
+	}
+	if cfg.LLM.Provider != "openai" {
+		t.Errorf("expected provider 'openai', got '%s'", cfg.LLM.Provider)
+	}
+	if cfg.LLM.APIKey != "key1" {
+		t.Errorf("expected api_key 'key1', got '%s'", cfg.LLM.APIKey)
 	}
 }

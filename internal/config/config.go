@@ -3,8 +3,8 @@ package config
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
+	"path/filepath"
 	"pullreview/internal/utils"
 	"strings"
 
@@ -57,23 +57,29 @@ type Config struct {
 }
 
 // LoadConfigWithOverrides loads configuration from a YAML file, then applies overrides from
-// environment variables and finally from CLI flags (email, apiToken).
-
+// environment variables and finally from CLI flags (email, apiToken, repoSlug).
+// If skipBitbucket is true, Bitbucket-specific fields are not validated (used for local-only reviews).
 // Returns a validated Config or an error if required fields are missing.
-func LoadConfigWithOverrides(cfgFile, email, apiToken string) (*Config, error) {
+func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string, skipBitbucket bool) (*Config, error) {
 
 	cfg := &Config{}
 
-	// 1. Load from YAML file
-	if cfgFile == "" {
-		return nil, errors.New("config file path must be provided explicitly")
-	}
-	data, err := ioutil.ReadFile(cfgFile)
-	if err != nil {
-		return nil, fmt.Errorf("could not read config file %s: %w", cfgFile, err)
-	}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("could not parse YAML config: %w", err)
+	// 1. Load from YAML file (optional - only error if explicitly requested file is missing)
+	if cfgFile != "" {
+		data, err := os.ReadFile(cfgFile)
+		if err != nil {
+			// If file doesn't exist and appears to be auto-detected, just skip it (race condition)
+			if os.IsNotExist(err) && filepath.Base(cfgFile) == "pullreview.yaml" {
+				// Config file not found, will rely on env vars
+			} else {
+				// User explicitly provided a config that doesn't exist
+				return nil, fmt.Errorf("could not read config file %s: %w", cfgFile, err)
+			}
+		} else {
+			if err := yaml.Unmarshal(data, cfg); err != nil {
+				return nil, fmt.Errorf("could not parse YAML config: %w", err)
+			}
+		}
 	}
 
 	// 2. Override with environment variables if set (but only if not set by CLI flags)
@@ -90,7 +96,7 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken string) (*Config, error) {
 
 	}
 
-	if v := os.Getenv("BITBUCKET_REPO_SLUG"); v != "" {
+	if v := os.Getenv("BITBUCKET_REPO_SLUG"); v != "" && repoSlug == "" {
 		cfg.Bitbucket.RepoSlug = v
 	}
 	if v := os.Getenv("BITBUCKET_BASE_URL"); v != "" {
@@ -121,6 +127,9 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken string) (*Config, error) {
 	if apiToken != "" {
 		cfg.Bitbucket.APIToken = apiToken
 	}
+	if repoSlug != "" {
+		cfg.Bitbucket.RepoSlug = repoSlug
+	}
 
 	// 4. Set default for BaseURL if not set
 
@@ -147,21 +156,29 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken string) (*Config, error) {
 		}
 	}
 
+	// 5b. Set default for PromptFile if not set (look for prompt.md next to executable)
+	if strings.TrimSpace(cfg.PromptFile) == "" {
+		if exePath, err := os.Executable(); err == nil {
+			exeDir := filepath.Dir(exePath)
+			cfg.PromptFile = filepath.Join(exeDir, "prompt.md")
+		}
+	}
+
 	// 6. Validate required fields
 	var missing []string
-	if strings.TrimSpace(cfg.Bitbucket.Email) == "" {
-		missing = append(missing, "bitbucket.email")
-	}
-	if strings.TrimSpace(cfg.Bitbucket.APIToken) == "" {
-		missing = append(missing, "bitbucket.api_token")
-	}
-
-	if strings.TrimSpace(cfg.Bitbucket.Workspace) == "" {
-		missing = append(missing, "bitbucket.workspace")
-	}
-
-	if strings.TrimSpace(cfg.Bitbucket.RepoSlug) == "" {
-		missing = append(missing, "bitbucket.repo_slug (could not infer from git remote)")
+	if !skipBitbucket {
+		if strings.TrimSpace(cfg.Bitbucket.Email) == "" {
+			missing = append(missing, "bitbucket.email")
+		}
+		if strings.TrimSpace(cfg.Bitbucket.APIToken) == "" {
+			missing = append(missing, "bitbucket.api_token")
+		}
+		if strings.TrimSpace(cfg.Bitbucket.Workspace) == "" {
+			missing = append(missing, "bitbucket.workspace")
+		}
+		if strings.TrimSpace(cfg.Bitbucket.RepoSlug) == "" {
+			missing = append(missing, "bitbucket.repo_slug (could not infer from git remote)")
+		}
 	}
 	if strings.TrimSpace(cfg.LLM.Provider) == "" {
 		missing = append(missing, "llm.provider")
@@ -179,6 +196,15 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken string) (*Config, error) {
 
 		return nil, errors.New("missing required config values: " + strings.Join(missing, ", "))
 
+	}
+
+	// 7. Validate that prompt file exists and is readable
+	if cfg.PromptFile != "" {
+		if _, err := os.Stat(cfg.PromptFile); os.IsNotExist(err) {
+			return nil, fmt.Errorf("prompt file does not exist: %s (ensure it's mounted or available)", cfg.PromptFile)
+		} else if err != nil {
+			return nil, fmt.Errorf("cannot access prompt file %s: %w", cfg.PromptFile, err)
+		}
 	}
 
 	return cfg, nil

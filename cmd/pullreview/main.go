@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -16,28 +17,39 @@ import (
 	"pullreview/internal/llm"
 	"pullreview/internal/review"
 	"pullreview/internal/utils"
-	"strings"
 )
 
 var (
-	cfgFile     string
-	prID        string
-	bbEmail     string
-	bbAPIToken  string
-	showVersion bool
-	verbose     bool
-	postToBB    bool
-	version     = "0.1.0"
+	cfgFile      string
+	prID         string
+	bbEmail      string
+	bbAPIToken   string
+	repoSlug     string
+	showVersion  bool
+	verbose      bool
+	postToBB     bool
+	skipInline   bool
+	localReview  bool
+	targetBranch string
+	version      = "0.1.0"
 )
 
 func main() {
-	// Determine default config path: executable directory
-	defaultConfig := "pullreview.yaml"
-	if exePath, err := os.Executable(); err == nil {
-		exeDir := ""
-		if exePath != "" {
-			exeDir = filepath.Dir(exePath)
-			defaultConfig = filepath.Join(exeDir, "pullreview.yaml")
+	// Try to find config file: cwd first, then next to the binary (optional)
+	defaultConfig := ""
+	if cwd, err := os.Getwd(); err == nil {
+		configPath := filepath.Join(cwd, "pullreview.yaml")
+		if _, err := os.Stat(configPath); err == nil {
+			defaultConfig = configPath
+		}
+	}
+	if defaultConfig == "" {
+		if exePath, err := os.Executable(); err == nil {
+			exeDir := filepath.Dir(exePath)
+			configPath := filepath.Join(exeDir, "pullreview.yaml")
+			if _, err := os.Stat(configPath); err == nil {
+				defaultConfig = configPath
+			}
 		}
 	}
 
@@ -45,16 +57,21 @@ func main() {
 		Use:   "pullreview",
 		Short: "Automated code review for Bitbucket Cloud PRs using LLMs",
 		Long:  "pullreview fetches Bitbucket Cloud PR diffs, sends them to an LLM for review, and posts AI-generated comments back to Bitbucket.",
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  runPullReview,
 	}
 
-	rootCmd.Flags().StringVarP(&cfgFile, "config", "c", defaultConfig, "Path to config file")
+	rootCmd.Flags().StringVarP(&cfgFile, "config", "c", defaultConfig, "Path to config file (optional, auto-detected or use env vars)")
 	rootCmd.Flags().StringVar(&prID, "pr", "", "Bitbucket Pull Request ID (overrides branch inference)")
 	rootCmd.Flags().StringVar(&bbEmail, "email", "", "Bitbucket account email (overrides config/env)")
 	rootCmd.Flags().StringVar(&bbAPIToken, "token", "", "Bitbucket API token (overrides config/env)")
+	rootCmd.Flags().StringVar(&repoSlug, "repo", "", "Bitbucket repository slug (overrides config/env)")
 	rootCmd.Flags().BoolVar(&showVersion, "version", false, "Show version and exit")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.Flags().BoolVar(&postToBB, "post", false, "Post comments to Bitbucket (default: false, just print comments)")
+	rootCmd.Flags().BoolVar(&skipInline, "skip-inline", false, "Skip interactive prompt (non-interactive mode)")
+	rootCmd.Flags().BoolVar(&localReview, "local", false, "Review local branch changes against target branch (optional positional arg: path to repo folder)")
+	rootCmd.Flags().StringVar(&targetBranch, "target", "main", "Target branch to diff against when using --local")
 
 	// Add fix-pr subcommand
 	fixPRCmd := &cobra.Command{
@@ -65,12 +82,9 @@ verifies build/test/lint, and creates a stacked pull request with the fixes.`,
 		RunE: runFixPR,
 	}
 
-	// Share some flags with root command
 	fixPRCmd.Flags().StringVarP(&cfgFile, "config", "c", defaultConfig, "Path to config file")
 	fixPRCmd.Flags().StringVar(&prID, "pr", "", "Bitbucket Pull Request ID (overrides branch inference)")
 	fixPRCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
-
-	// Auto-fix specific flags
 	fixPRCmd.Flags().Bool("dry-run", false, "Apply fixes locally without committing or creating PR")
 	fixPRCmd.Flags().Bool("skip-verification", false, "Skip build/test/lint verification (dangerous)")
 	fixPRCmd.Flags().Int("max-iterations", 0, "Maximum fix iterations (0 = use config default)")
@@ -91,36 +105,151 @@ func initConfig() {
 	// Placeholder: could load config here if needed before command runs
 }
 
+// validateFlags checks for invalid flag combinations before execution.
+func validateFlags(isLocal, isPost bool, prID string, args []string) error {
+	if !isLocal && len(args) > 0 {
+		return fmt.Errorf("positional arguments are only accepted with --local; did you mean: pullreview --local %s", args[0])
+	}
+	if isLocal && isPost {
+		return fmt.Errorf("--post cannot be used with --local (no Bitbucket PR to post to)")
+	}
+	if isLocal && prID != "" {
+		return fmt.Errorf("--pr cannot be used with --local (local reviews do not use Bitbucket PRs)")
+	}
+	return nil
+}
+
 func runPullReview(cmd *cobra.Command, args []string) error {
-	// Handle version flag
 	if showVersion {
 		fmt.Printf("pullreview version %s\n", version)
 		return nil
 	}
 
-	// Load configuration
-	cfg, err := config.LoadConfigWithOverrides(cfgFile, bbEmail, bbAPIToken)
+	if err := validateFlags(localReview, postToBB, prID, args); err != nil {
+		return err
+	}
+
+	// Load configuration with overrides from CLI flags
+	// Skip Bitbucket validation for local-only reviews
+	cfg, err := config.LoadConfigWithOverrides(cfgFile, bbEmail, bbAPIToken, repoSlug, localReview)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Get repo path
-	repoPath, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("could not determine working directory: %w", err)
-	}
+	var diff string
+	var finalPRID string
+	var bbClient *bitbucket.Client
 
-	// Initialize Bitbucket client
-	bbClient := bitbucket.NewClient(
-		cfg.Bitbucket.Email,
-		cfg.Bitbucket.APIToken,
-		cfg.Bitbucket.Workspace,
-		cfg.Bitbucket.RepoSlug,
-		cfg.Bitbucket.BaseURL,
-	)
+	if localReview {
+		// Local branch review: get diff from git, skip Bitbucket entirely
+		// Optional positional arg specifies the repo path (defaults to cwd)
+		var repoPath string
+		if len(args) > 0 {
+			repoPath, err = filepath.Abs(args[0])
+			if err != nil {
+				return fmt.Errorf("could not resolve path %q: %w", args[0], err)
+			}
+		} else {
+			repoPath, err = os.Getwd()
+			if err != nil {
+				return fmt.Errorf("could not determine working directory: %w", err)
+			}
+		}
+		branch, err := utils.GetCurrentGitBranch(repoPath)
+		if err != nil {
+			return fmt.Errorf("could not infer git branch: %w", err)
+		}
+		fmt.Printf("🔎 Reviewing local branch: %s (against %s)\n", branch, targetBranch)
 
-	if err := bbClient.Authenticate(); err != nil {
-		return fmt.Errorf("bitbucket authentication failed: %w", err)
+		diff, err = utils.GetLocalDiff(repoPath, targetBranch)
+		if err != nil {
+			return fmt.Errorf("could not get local diff: %w", err)
+		}
+		if strings.TrimSpace(diff) == "" {
+			fmt.Printf("ℹ️  No changes to review — HEAD has no unique commits since branching from %s.\n", targetBranch)
+			return nil
+		}
+		fmt.Printf("✅ Got local diff (length: %d bytes)\n", len(diff))
+
+		if verbose {
+			fmt.Println("------ BEGIN LOCAL DIFF ------")
+			fmt.Println(diff)
+			fmt.Println("------- END LOCAL DIFF -------")
+		}
+	} else {
+		// Bitbucket PR review: existing flow
+		bbClient = bitbucket.NewClient(
+			cfg.Bitbucket.Email,
+			cfg.Bitbucket.APIToken,
+			cfg.Bitbucket.Workspace,
+			cfg.Bitbucket.RepoSlug,
+			cfg.Bitbucket.BaseURL,
+		)
+
+		if err := bbClient.Authenticate(); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ Bitbucket login failed: %v\n", err)
+			if cfg.Bitbucket.APIToken == "" {
+				fmt.Fprintln(os.Stderr, "  - Missing Bitbucket API token (set in config, env, or CLI flag)")
+			}
+			if cfg.Bitbucket.Workspace == "" {
+				fmt.Fprintln(os.Stderr, "  - Missing Bitbucket workspace (set in config, env, or CLI flag)")
+			}
+			return fmt.Errorf("could not authenticate with Bitbucket")
+		}
+		fmt.Printf("✅ Successfully authenticated with Bitbucket (workspace: %s)\n", cfg.Bitbucket.Workspace)
+
+		// Determine PR ID: use CLI flag if provided, else infer from git branch
+		finalPRID = prID
+		if finalPRID == "" {
+			repoPath, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("could not determine working directory: %w", err)
+			}
+			branch, err := utils.GetCurrentGitBranch(repoPath)
+			if err != nil {
+				return fmt.Errorf("could not infer git branch: %w", err)
+			}
+			fmt.Printf("🔎 Inferred branch: %s\n", branch)
+			finalPRID, err = bbClient.GetPRIDByBranch(branch)
+			if err != nil {
+				return fmt.Errorf("could not find open PR for branch %q: %w", branch, err)
+			}
+			fmt.Printf("🔎 Inferred PR ID: %s\n", finalPRID)
+		} else {
+			fmt.Printf("ℹ️ Using provided PR ID: %s\n", finalPRID)
+		}
+
+		// Fetch PR metadata
+		prMetaBytes, err := bbClient.GetPRMetadata(finalPRID)
+		if err != nil {
+			return fmt.Errorf("failed to fetch PR metadata: %w", err)
+		}
+		fmt.Printf("✅ Fetched PR metadata for PR #%s\n", finalPRID)
+
+		type prMetaStruct struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		}
+		var prMeta prMetaStruct
+		if err := json.Unmarshal(prMetaBytes, &prMeta); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not parse PR metadata JSON: %v\n", err)
+		} else {
+			fmt.Printf("🔖 PR Title: %s\n", prMeta.Title)
+			fmt.Printf("📝 PR Description: %s\n", prMeta.Description)
+		}
+
+		// Fetch PR diff
+		diff, err = bbClient.GetPRDiff(finalPRID)
+		if err != nil {
+			return fmt.Errorf("failed to fetch PR diff: %w", err)
+		}
+		fmt.Printf("✅ Fetched PR diff for PR #%s (length: %d bytes)\n", finalPRID, len(diff))
+
+		if verbose {
+			fmt.Println("------ BEGIN PR DIFF ------")
+			fmt.Println(diff)
+			fmt.Println("------- END PR DIFF -------")
+		}
 	}
 
 	// Initialize LLM client
@@ -128,87 +257,154 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 	llmClient := llm.NewClient(cfg.LLM.Provider, cfg.LLM.APIKey, cfg.LLM.Endpoint)
 	llmClient.Model = cfg.LLM.Model
 
-	// Determine PR ID
-	finalPRID, err := determinePRID(prID, repoPath, bbClient)
-	if err != nil {
-		return err
+	// Resolve prompt file path relative to config file location if not absolute
+	promptPath := cfg.PromptFile
+	if !filepath.IsAbs(promptPath) && cfgFile != "" {
+		cfgDir := filepath.Dir(cfgFile)
+		promptPath = filepath.Join(cfgDir, promptPath)
 	}
 
-	fmt.Printf("🔍 Reviewing PR #%s...\n", finalPRID)
-
-	// Fetch PR details
-	ctx := context.Background()
-	pr, err := bbClient.GetPullRequest(ctx, finalPRID)
+	// Load prompt template
+	promptBytes, err := os.ReadFile(promptPath)
 	if err != nil {
-		return fmt.Errorf("failed to fetch PR: %w", err)
+		return fmt.Errorf("failed to read prompt file %q: %w", promptPath, err)
+	}
+	promptTemplate := string(promptBytes)
+
+	// Validate prompt is not empty
+	if strings.TrimSpace(promptTemplate) == "" {
+		return fmt.Errorf("prompt file %q is empty - cannot proceed without a valid prompt template", promptPath)
 	}
 
-	if verbose {
-		fmt.Printf("PR Title: %s\n", pr.Title)
-		if pr.Author != "" {
-			fmt.Printf("Author: %s\n", pr.Author)
+	// Inject diff into prompt
+	finalPrompt := strings.Replace(promptTemplate, "(DIFF_CONTENT_HERE)", diff, 1)
+
+	// Send prompt to LLM
+	fmt.Println("🤖 Sending review prompt to LLM...")
+	llmResp, err := llmClient.SendReviewPrompt(finalPrompt)
+	if err != nil {
+		return fmt.Errorf("failed to get response from LLM: %w", err)
+	}
+
+	// Parse LLM response and print summary and inline comments
+	r := review.NewReview(finalPRID, diff)
+	if err := r.ParseDiff(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to parse diff for comment mapping: %v\n", err)
+	}
+	r.ParseLLMResponse(llmResp)
+
+	// Filter comments: only keep those that match the diff, and report unmatched
+	matched, unmatched := review.MatchCommentsToDiff(r.Comments, r.Files)
+
+	// Compose summary with unmatched comments as bullet points (no heading)
+	summaryWithUnmatched := r.Summary
+	if len(unmatched) > 0 {
+		var b strings.Builder
+		if summaryWithUnmatched != "" {
+			b.WriteString(summaryWithUnmatched)
+			b.WriteString("\n\n")
+		}
+		for _, cmt := range unmatched {
+			if cmt.IsFileLevel {
+				b.WriteString(fmt.Sprintf("- [%s] %s\n", cmt.FilePath, cmt.Text))
+			} else {
+				b.WriteString(fmt.Sprintf("- [%s:%d] %s\n", cmt.FilePath, cmt.Line, cmt.Text))
+			}
+		}
+		summaryWithUnmatched = b.String()
+	}
+
+	fmt.Println("------ AI Review Summary ------")
+	if summaryWithUnmatched != "" {
+		fmt.Println(summaryWithUnmatched)
+	} else {
+		fmt.Println("(No summary comment found in LLM output.)")
+	}
+	fmt.Println("------ Inline Comments ------")
+	if len(matched) == 0 {
+		fmt.Println("(No valid inline or file-level comments found in LLM output.)")
+	} else {
+		for _, cmt := range matched {
+			if cmt.IsFileLevel {
+				fmt.Printf("[File: %s]\n%s\n\n", cmt.FilePath, cmt.Text)
+			} else {
+				fmt.Printf("[%s:%d]\n%s\n\n", cmt.FilePath, cmt.Line, cmt.Text)
+			}
 		}
 	}
 
-	// Fetch PR diff
-	diff, err := bbClient.GetPRDiff(finalPRID)
-	if err != nil {
-		return fmt.Errorf("failed to fetch PR diff: %w", err)
-	}
-
-	// Generate review comments
-	fmt.Println("🤖 Generating review using LLM...")
-	reviewComments, err := getReviewComments(cfg, llmClient, finalPRID, diff)
-	if err != nil {
-		return fmt.Errorf("failed to generate review: %w", err)
-	}
-
-	// Display review results
-	if len(reviewComments) == 0 {
-		fmt.Println("✅ No issues found - looks good!")
+	// Skip Bitbucket posting for local reviews
+	if localReview {
 		return nil
 	}
 
-	fmt.Printf("\n📝 Found %d comment(s):\n", len(reviewComments))
-	fmt.Println(strings.Repeat("=", 60))
-
-	for i, comment := range reviewComments {
-		fmt.Printf("\n[Comment %d]\n", i+1)
-		if comment.IsFileLevel {
-			fmt.Printf("File: %s (file-level comment)\n", comment.FilePath)
-		} else {
-			fmt.Printf("File: %s, Line: %d\n", comment.FilePath, comment.Line)
+	// Determine if we should post based on skip-inline flag and user confirmation
+	shouldPost := postToBB
+	if !skipInline {
+		// Interactive mode: prompt user
+		confirmed, err := utils.PromptYesNo("Should I post this review to Bitbucket?", "n")
+		if err != nil {
+			return fmt.Errorf("failed to read user input: %w", err)
 		}
-		fmt.Printf("Comment:\n%s\n", comment.Text)
-		fmt.Println(strings.Repeat("-", 60))
+		shouldPost = confirmed
 	}
 
-	// Ask user if they want to post to Bitbucket
-	if postToBB {
-		// --post flag was used, automatically post
-		fmt.Println("\n📤 Posting comments to Bitbucket (--post flag enabled)...")
-		return postCommentsToBitbucket(bbClient, finalPRID, reviewComments)
+	if !shouldPost {
+		fmt.Println("ℹ️  Review not posted to Bitbucket.")
+		return nil
 	}
 
-	// Interactive mode - ask user
-	fmt.Print("\n❓ Do you want to post these comments to Bitbucket? (yes/no): ")
-	var response string
-	fmt.Scanln(&response)
+	// Bitbucket posting output section
+	fmt.Println("\n📤 Posting review to Bitbucket...")
 
-	response = strings.ToLower(strings.TrimSpace(response))
-	if response == "yes" || response == "y" {
-		fmt.Println("\n📤 Posting comments to Bitbucket...")
-		return postCommentsToBitbucket(bbClient, finalPRID, reviewComments)
+	// Post inline and file-level comments (only matched)
+	inlineCount := 0
+	for _, cmt := range matched {
+		if cmt.IsFileLevel {
+			err := bbClient.PostSummaryComment(finalPRID, cmt.Text)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "   ❌ Failed to post file-level comment to %s: %v\n", cmt.FilePath, err)
+			} else {
+				fmt.Printf("   ✅ Posted file-level comment to %s\n", cmt.FilePath)
+			}
+		} else {
+			err := bbClient.PostInlineComment(finalPRID, cmt.FilePath, cmt.Line, cmt.Text)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "   ❌ Failed to post inline comment to %s:%d: %v\n", cmt.FilePath, cmt.Line, err)
+			} else {
+				inlineCount++
+				fmt.Printf("   ✅ Posted inline comment to %s:%d\n", cmt.FilePath, cmt.Line)
+			}
+		}
 	}
 
-	fmt.Println("\n✅ Comments not posted. Review complete.")
+	// Post summary comment (with unmatched comments as bullet points)
+	summaryPosted := false
+	if summaryWithUnmatched != "" {
+		err := bbClient.PostSummaryComment(finalPRID, summaryWithUnmatched)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "   ❌ Failed to post summary comment: %v\n", err)
+		} else {
+			summaryPosted = true
+			fmt.Println("   ✅ Posted summary comment")
+		}
+	}
+
+	fmt.Printf("\n✅ Successfully posted %d inline comment(s)%s to PR #%s\n", inlineCount,
+		func() string {
+			if summaryPosted {
+				return " and summary"
+			}
+			return ""
+		}(), finalPRID)
+
 	return nil
 }
 
 // runFixPR implements the fix-pr subcommand.
 func runFixPR(cmd *cobra.Command, args []string) error {
 	// Load configuration
-	cfg, err := config.LoadConfigWithOverrides(cfgFile, bbEmail, bbAPIToken)
+	cfg, err := config.LoadConfigWithOverrides(cfgFile, bbEmail, bbAPIToken, repoSlug, false)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -334,13 +530,11 @@ func runFixPR(cmd *cobra.Command, args []string) error {
 
 	if useAutofixPrompt {
 		// Use combined autofix approach (find issues + generate fixes in ONE LLM call)
-		// Get file contents for context
 		fileContents, err := getFileContentsFromDiff(repoPath, diff)
 		if err != nil {
 			return fmt.Errorf("failed to read file contents: %w", err)
 		}
 
-		// Generate issues and fixes in one call
 		autofixResp, err := autofixer.GenerateFindAndFix(ctx, diff, fileContents)
 		if err != nil {
 			return fmt.Errorf("autofix generation failed: %w", err)
@@ -379,7 +573,6 @@ func runFixPR(cmd *cobra.Command, args []string) error {
 		}
 	} else {
 		// Use fix-existing-comments approach
-		// Post comments to Bitbucket if --post flag is set (they already exist, but user might want them reposted)
 		postComments, _ := cmd.Flags().GetBool("post")
 		if postComments {
 			fmt.Println("📤 Posting review comments to Bitbucket...")
@@ -389,13 +582,11 @@ func runFixPR(cmd *cobra.Command, args []string) error {
 			fmt.Printf("✅ Posted %d comment(s) to PR #%s\n", len(reviewComments), finalPRID)
 		}
 
-		// Get file contents for context
 		fileContents, err := getFileContents(repoPath, reviewComments)
 		if err != nil {
 			return fmt.Errorf("failed to read file contents: %w", err)
 		}
 
-		// Apply fixes using existing comments
 		fixResult, err = autofixer.GenerateAndApplyFixes(ctx, reviewComments, diff, fileContents)
 		if err != nil {
 			return fmt.Errorf("fix generation failed: %w", err)
@@ -488,12 +679,12 @@ func determinePRID(cliPRID, repoPath string, bbClient *bitbucket.Client) (string
 		return "", fmt.Errorf("could not infer git branch: %w", err)
 	}
 
-	prID, err := bbClient.GetPRIDByBranch(branch)
+	id, err := bbClient.GetPRIDByBranch(branch)
 	if err != nil {
 		return "", fmt.Errorf("could not find open PR for branch %q: %w", branch, err)
 	}
 
-	return prID, nil
+	return id, nil
 }
 
 // buildCommitMessage generates commit message from template.
@@ -566,12 +757,9 @@ func getFileContents(repoPath string, comments []review.Comment) (map[string]str
 func getFileContentsFromDiff(repoPath string, diff string) (map[string]string, error) {
 	contents := make(map[string]string)
 
-	// Parse diff to extract file paths
-	// Look for lines like "diff --git a/path/to/file b/path/to/file"
 	lines := strings.Split(diff, "\n")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "diff --git") {
-			// Extract file path (after "b/")
 			parts := strings.Split(line, " b/")
 			if len(parts) == 2 {
 				filePath := parts[1]
@@ -603,7 +791,6 @@ func getReviewComments(cfg *config.Config, llmClient *llm.Client, prID, diff str
 		promptPath = filepath.Join(cfgDir, promptPath)
 	}
 
-	// Read prompt template
 	promptData, err := os.ReadFile(promptPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read prompt file: %w", err)
@@ -611,13 +798,11 @@ func getReviewComments(cfg *config.Config, llmClient *llm.Client, prID, diff str
 
 	prompt := strings.ReplaceAll(string(promptData), "(DIFF_CONTENT_HERE)", diff)
 
-	// Send to LLM
 	response, err := llmClient.SendReviewPrompt(prompt)
 	if err != nil {
 		return nil, fmt.Errorf("LLM request failed: %w", err)
 	}
 
-	// Parse review comments
 	r := review.NewReview(prID, diff)
 	if err := r.ParseDiff(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to parse diff for comment mapping: %v\n", err)
@@ -632,19 +817,17 @@ func convertBitbucketCommentsToReviewComments(bbComments []bitbucket.BitbucketCo
 	var comments []review.Comment
 
 	for _, bbComment := range bbComments {
-		// Extract the raw text content
 		var text string
 		if content, ok := bbComment.Content["raw"].(string); ok {
 			text = content
 		} else {
-			continue // Skip if no text content
+			continue
 		}
 
 		comment := review.Comment{
 			Text: text,
 		}
 
-		// Check if it's an inline comment
 		if bbComment.Inline != nil && bbComment.Inline.Path != "" {
 			comment.FilePath = bbComment.Inline.Path
 			comment.Line = bbComment.Inline.To
@@ -667,15 +850,12 @@ func postCommentsToBitbucket(bbClient *bitbucket.Client, prID string, comments [
 
 	for _, comment := range comments {
 		if comment.IsFileLevel {
-			// Post as file-level comment (not currently supported by simple inline API)
-			// For now, we'll post inline comments only
 			if verbose {
 				fmt.Printf("⚠️  Skipping file-level comment for %s (inline comments only)\n", comment.FilePath)
 			}
 			continue
 		}
 
-		// Post inline comment
 		err := bbClient.PostInlineComment(prID, comment.FilePath, comment.Line, comment.Text)
 		if err != nil {
 			errorCount++

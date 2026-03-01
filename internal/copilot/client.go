@@ -1,10 +1,12 @@
 package copilot
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -35,12 +37,35 @@ func CheckCLIAvailable() error {
 	if err != nil {
 		return errors.New("Copilot CLI not found. Please install from https://github.com/github/copilot-cli and ensure it is in your PATH")
 	}
+
+	// Check if Copilot CLI is authenticated
+	if err := checkAuth(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// checkAuth verifies that the Copilot CLI is authenticated by running a test prompt.
+// It checks both the exit code and stdout output, since some Copilot CLI versions
+// exit with code 0 even on auth failure (but always produce empty stdout).
+func checkAuth() error {
+	cmd := exec.Command("copilot", "-p", "hello")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	// Non-zero exit code means auth failed; empty stdout with exit code 0
+	// also indicates auth failure (some CLI versions exit 0 on auth errors).
+	if err != nil || stdout.Len() == 0 {
+		return fmt.Errorf("copilot auth check failed: %s", strings.TrimSpace(stderr.String()))
+	}
 	return nil
 }
 
 // SendReviewPrompt sends the review prompt to GitHub Copilot and returns the response.
 func (c *Client) SendReviewPrompt(prompt string) (string, error) {
-	// Check if Copilot CLI is available
+	// Check if Copilot CLI is available and authenticated
 	if err := CheckCLIAvailable(); err != nil {
 		return "", err
 	}
@@ -60,7 +85,7 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 		fmt.Fprintln(os.Stderr, "[copilot] Starting Copilot CLI server...")
 	}
 	if err := client.Start(); err != nil {
-		return "", fmt.Errorf("failed to start Copilot CLI: %w (ensure you have run 'copilot auth login')", err)
+		return "", fmt.Errorf("failed to start Copilot CLI: %w", err)
 	}
 	defer client.Stop()
 
@@ -82,6 +107,7 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 	if verboseMode {
 		fmt.Fprintln(os.Stderr, "[copilot] Sending prompt to Copilot...")
 	}
+	// session.SendAndWait will wait indefinitely if the copilot CLI is not authenticated, so we rely on the earlier checkAuth to prevent that scenario.
 	response, err := session.SendAndWait(copilot.MessageOptions{
 		Prompt: prompt,
 	}, c.Timeout)
