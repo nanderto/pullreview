@@ -2,6 +2,7 @@ package copilot
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -84,21 +85,27 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 	if verboseMode {
 		fmt.Fprintln(os.Stderr, "[copilot] Starting Copilot CLI server...")
 	}
-	if err := client.Start(); err != nil {
+
+	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
+	defer cancel()
+
+	if err := client.Start(ctx); err != nil {
 		return "", fmt.Errorf("failed to start Copilot CLI: %w", err)
 	}
 	defer client.Stop()
 
 	// Create a session with the specified model
 	sessionConfig := &copilot.SessionConfig{
-		Model:     c.Model,
-		Streaming: false, // We want the full response, not streaming
+		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+		Model:               c.Model,
+		Streaming:           false, // We want the full response, not streaming
 	}
 
 	if verboseMode {
 		fmt.Fprintln(os.Stderr, "[copilot] Creating session...")
 	}
-	session, err := client.CreateSession(sessionConfig)
+
+	session, err := client.CreateSession(ctx, sessionConfig)
 	if err != nil {
 		return "", fmt.Errorf("failed to create Copilot session: %w", err)
 	}
@@ -108,9 +115,9 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 		fmt.Fprintln(os.Stderr, "[copilot] Sending prompt to Copilot...")
 	}
 	// session.SendAndWait will wait indefinitely if the copilot CLI is not authenticated, so we rely on the earlier checkAuth to prevent that scenario.
-	response, err := session.SendAndWait(copilot.MessageOptions{
+	response, err := session.SendAndWait(ctx, copilot.MessageOptions{
 		Prompt: prompt,
-	}, c.Timeout)
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to get response from Copilot: %w", err)
 	}
