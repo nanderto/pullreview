@@ -148,6 +148,16 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string, skipBitb
 		}
 	}
 
+	// 5c. Resolve relative PromptFile paths against the config file's directory,
+	// so that "prompt_file: prompt.md" in the config works regardless of the
+	// current working directory.
+	if cfg.PromptFile != "" && !filepath.IsAbs(cfg.PromptFile) {
+		if cfgFile != "" {
+			cfgDir := filepath.Dir(cfgFile)
+			cfg.PromptFile = filepath.Join(cfgDir, cfg.PromptFile)
+		}
+	}
+
 	// 6. Validate required fields
 	var missing []string
 	if !skipBitbucket {
