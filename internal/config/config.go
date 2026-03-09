@@ -140,23 +140,11 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string, skipBitb
 		}
 	}
 
-	// 5b. Set default for PromptFile if not set (look for prompt.md next to executable)
-	if strings.TrimSpace(cfg.PromptFile) == "" {
-		if exePath, err := os.Executable(); err == nil {
-			exeDir := filepath.Dir(exePath)
-			cfg.PromptFile = filepath.Join(exeDir, "prompt.md")
-		}
-	}
-
-	// 5c. Resolve relative PromptFile paths against the config file's directory,
-	// so that "prompt_file: prompt.md" in the config works regardless of the
-	// current working directory.
-	if cfg.PromptFile != "" && !filepath.IsAbs(cfg.PromptFile) {
-		if cfgFile != "" {
-			cfgDir := filepath.Dir(cfgFile)
-			cfg.PromptFile = filepath.Join(cfgDir, cfg.PromptFile)
-		}
-	}
+	// 5b. Resolve prompt file with search precedence:
+	//   1. Explicit path from config/env (absolute = as-is, relative = resolve against config dir)
+	//   2. prompt.md in current working directory (repo-specific override)
+	//   3. prompt.md next to the executable (installation default)
+	cfg.PromptFile = resolvePromptFile(cfg.PromptFile, cfgFile)
 
 	// 6. Validate required fields
 	var missing []string
@@ -183,7 +171,7 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string, skipBitb
 	}
 
 	if strings.TrimSpace(cfg.PromptFile) == "" {
-		missing = append(missing, "prompt_file")
+		missing = append(missing, "prompt_file (not found in config dir, working directory, or executable directory)")
 	}
 
 	if len(missing) > 0 {
@@ -195,7 +183,7 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string, skipBitb
 	// 7. Validate that prompt file exists and is readable
 	if cfg.PromptFile != "" {
 		if _, err := os.Stat(cfg.PromptFile); os.IsNotExist(err) {
-			return nil, fmt.Errorf("prompt file does not exist: %s (ensure it's mounted or available)", cfg.PromptFile)
+			return nil, fmt.Errorf("prompt file does not exist: %s (searched config dir, working directory, and executable directory)", cfg.PromptFile)
 		} else if err != nil {
 			return nil, fmt.Errorf("cannot access prompt file %s: %w", cfg.PromptFile, err)
 		}
@@ -203,6 +191,48 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string, skipBitb
 
 	return cfg, nil
 
+}
+
+// resolvePromptFile resolves the prompt file path using a search precedence:
+//  1. Explicit path (absolute = as-is, relative = resolve against config dir)
+//  2. prompt.md in the current working directory (repo-specific override)
+//  3. prompt.md next to the executable (installation default)
+//
+// Returns the resolved absolute path, or "" if not found anywhere.
+func resolvePromptFile(promptFile, cfgFile string) string {
+	// 1. Explicit path from config or env var
+	if strings.TrimSpace(promptFile) != "" {
+		if filepath.IsAbs(promptFile) {
+			if _, err := os.Stat(promptFile); err == nil {
+				return promptFile
+			}
+		}
+		// Relative path: try resolving against config file directory
+		if cfgFile != "" {
+			candidate := filepath.Join(filepath.Dir(cfgFile), promptFile)
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
+		}
+	}
+
+	// 2. prompt.md in the current working directory
+	if cwd, err := os.Getwd(); err == nil {
+		candidate := filepath.Join(cwd, "prompt.md")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	// 3. prompt.md next to the executable
+	if exePath, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(exePath), "prompt.md")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	return ""
 }
 
 // inferRepoSlug tries to infer the Bitbucket repo slug from the git remote URL.
