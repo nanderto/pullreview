@@ -193,6 +193,14 @@ func (c *Client) sendOpenAI(prompt string) (string, error) {
 	return openAIResp.Choices[0].Message.Content, nil
 }
 
+// SendFixPrompt sends a fix generation prompt to the LLM.
+// This is similar to SendReviewPrompt but specifically for generating code fixes.
+func (c *Client) SendFixPrompt(prompt string) (string, error) {
+	// For now, use the same implementation as SendReviewPrompt
+	// In the future, this could use a different endpoint or prompt format
+	return c.SendReviewPrompt(prompt)
+}
+
 // SetVerbose enables or disables verbose mode for LLM debug output.
 func SetVerbose(v bool) {
 	verboseMode = v
