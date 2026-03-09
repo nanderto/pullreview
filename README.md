@@ -140,10 +140,18 @@ In both examples, inline comments will be posted to the specified files/lines, a
 
 All settings are managed via a single YAML config file (`pullreview.yaml`). You can also provide credentials via command-line flags or environment variables.
 
-**Configuration Precedence:**  
-1. Values from `pullreview.yaml` are loaded first.
-2. Environment variables override values from the config file.
-3. Command-line flags override both environment variables and config file values.
+**Config File Resolution:**
+The tool searches for `pullreview.yaml` in this order (first found wins):
+1. Current working directory
+2. Next to the executable (e.g., `C:\tools\pullreview.yaml`)
+3. Explicitly via `--config` flag (highest priority)
+
+No config file is required for `--local` reviews if LLM settings are provided via environment variables.
+
+**Value Precedence (highest to lowest):**
+1. Command-line flags
+2. Environment variables
+3. Values from `pullreview.yaml`
 
 All required configuration fields must be set by one of these methods, or the tool will exit with an error.
 
@@ -390,10 +398,17 @@ cd /path/to/repo
 
 ## Customizing the AI Review
 
-
-
-
 Edit the `prompt.md` file to change the instructions or review style sent to the LLM. This allows you to tailor the AI’s feedback to your team’s needs.
+
+### Prompt File Resolution
+
+The tool searches for `prompt.md` in the following order (first found wins):
+
+1. **Explicit path** from `prompt_file` in config or `PULLREVIEW_PROMPT_FILE` env var (absolute paths used as-is; relative paths resolved against the config file’s directory)
+2. **Current working directory** — place a `prompt.md` in your repo for project-specific review instructions
+3. **Executable directory** — the installation default (e.g., `C:\tools\prompt.md`)
+
+This means you can override the default prompt on a per-repo basis by dropping a `prompt.md` in your repository root, or set a global default next to the installed binary. No configuration is needed if `prompt.md` exists in either location.
 
 ---
 
