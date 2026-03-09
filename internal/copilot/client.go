@@ -96,8 +96,9 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 
 	// Create a session with the specified model
 	sessionConfig := &copilot.SessionConfig{
-		Model:     c.Model,
-		Streaming: false, // We want the full response, not streaming
+		Model:               c.Model,
+		Streaming:           false, // We want the full response, not streaming
+		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 	}
 
 	if verboseMode {
