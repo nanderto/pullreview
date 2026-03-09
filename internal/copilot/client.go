@@ -81,14 +81,14 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 		LogLevel: getLogLevel(),
 	})
 
+	// Create a context with the configured timeout
+	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
+	defer cancel()
+
 	// Start the Copilot CLI server
 	if verboseMode {
 		fmt.Fprintln(os.Stderr, "[copilot] Starting Copilot CLI server...")
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
-	defer cancel()
-
 	if err := client.Start(ctx); err != nil {
 		return "", fmt.Errorf("failed to start Copilot CLI: %w", err)
 	}
@@ -96,15 +96,14 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 
 	// Create a session with the specified model
 	sessionConfig := &copilot.SessionConfig{
-		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 		Model:               c.Model,
 		Streaming:           false, // We want the full response, not streaming
+		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 	}
 
 	if verboseMode {
 		fmt.Fprintln(os.Stderr, "[copilot] Creating session...")
 	}
-
 	session, err := client.CreateSession(ctx, sessionConfig)
 	if err != nil {
 		return "", fmt.Errorf("failed to create Copilot session: %w", err)

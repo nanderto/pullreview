@@ -38,6 +38,22 @@ type Config struct {
 
 	PromptFile string `yaml:"prompt_file"` // Path to the prompt template file
 
+	// AutoFix configuration
+	AutoFix struct {
+		Enabled               bool   `yaml:"enabled"`
+		AutoCreatePR          bool   `yaml:"auto_create_pr"`
+		MaxIterations         int    `yaml:"max_iterations"`
+		VerifyBuild           bool   `yaml:"verify_build"`
+		VerifyTests           bool   `yaml:"verify_tests"`
+		VerifyLint            bool   `yaml:"verify_lint"`
+		PipelineMode          bool   `yaml:"pipeline_mode"`
+		BranchPrefix          string `yaml:"branch_prefix"`
+		AutofixPromptFile     string `yaml:"autofix_prompt_file"` // Combined find+fix prompt
+		FixPromptFile         string `yaml:"fix_prompt_file"`     // Fix existing comments prompt
+		CommitMessageTemplate string `yaml:"commit_message_template"`
+		PRTitleTemplate       string `yaml:"pr_title_template"`
+		PRDescriptionTemplate string `yaml:"pr_description_template"`
+	} `yaml:"autofix"`
 }
 
 // LoadConfigWithOverrides loads configuration from a YAML file, then applies overrides from
@@ -140,13 +156,11 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string, skipBitb
 		}
 	}
 
-	// 5b. Set default for PromptFile if not set (look for prompt.md next to executable)
-	if strings.TrimSpace(cfg.PromptFile) == "" {
-		if exePath, err := os.Executable(); err == nil {
-			exeDir := filepath.Dir(exePath)
-			cfg.PromptFile = filepath.Join(exeDir, "prompt.md")
-		}
-	}
+	// 5b. Resolve prompt file with search precedence:
+	//   1. Explicit path from config/env (absolute = as-is, relative = resolve against config dir)
+	//   2. prompt.md in current working directory (repo-specific override)
+	//   3. prompt.md next to the executable (installation default)
+	cfg.PromptFile = resolvePromptFile(cfg.PromptFile, cfgFile)
 
 	// 6. Validate required fields
 	var missing []string
@@ -173,7 +187,7 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string, skipBitb
 	}
 
 	if strings.TrimSpace(cfg.PromptFile) == "" {
-		missing = append(missing, "prompt_file")
+		missing = append(missing, "prompt_file (not found in config dir, working directory, or executable directory)")
 	}
 
 	if len(missing) > 0 {
@@ -185,7 +199,7 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string, skipBitb
 	// 7. Validate that prompt file exists and is readable
 	if cfg.PromptFile != "" {
 		if _, err := os.Stat(cfg.PromptFile); os.IsNotExist(err) {
-			return nil, fmt.Errorf("prompt file does not exist: %s (ensure it's mounted or available)", cfg.PromptFile)
+			return nil, fmt.Errorf("prompt file does not exist: %s (searched config dir, working directory, and executable directory)", cfg.PromptFile)
 		} else if err != nil {
 			return nil, fmt.Errorf("cannot access prompt file %s: %w", cfg.PromptFile, err)
 		}
@@ -195,7 +209,73 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string, skipBitb
 
 }
 
+// resolvePromptFile resolves the prompt file path using a search precedence:
+//  1. Explicit path (absolute = as-is, relative = resolve against config dir)
+//  2. prompt.md in the current working directory (repo-specific override)
+//  3. prompt.md next to the executable (installation default)
+//
+// Returns the resolved absolute path, or "" if not found anywhere.
+func resolvePromptFile(promptFile, cfgFile string) string {
+	// 1. Explicit path from config or env var
+	if strings.TrimSpace(promptFile) != "" {
+		if filepath.IsAbs(promptFile) {
+			if _, err := os.Stat(promptFile); err == nil {
+				return promptFile
+			}
+		}
+		// Relative path: try resolving against config file directory
+		if cfgFile != "" {
+			candidate := filepath.Join(filepath.Dir(cfgFile), promptFile)
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
+		}
+	}
+
+	// 2. prompt.md in the current working directory
+	if cwd, err := os.Getwd(); err == nil {
+		candidate := filepath.Join(cwd, "prompt.md")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	// 3. prompt.md next to the executable
+	if exePath, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(exePath), "prompt.md")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	return ""
+}
+
 // inferRepoSlug tries to infer the Bitbucket repo slug from the git remote URL.
 func inferRepoSlug(repoPath string) (string, error) {
 	return utils.GetRepoSlugFromGitRemote(repoPath)
+}
+
+// DetectPipelineMode checks environment variables to determine if running in CI/CD.
+func DetectPipelineMode() bool {
+	ciEnvVars := []string{
+		"CI",                 // Generic CI indicator
+		"BITBUCKET_PIPELINE", // Bitbucket Pipelines
+		"GITHUB_ACTIONS",     // GitHub Actions
+		"GITLAB_CI",          // GitLab CI
+		"JENKINS_HOME",       // Jenkins
+		"CIRCLECI",           // CircleCI
+		"TRAVIS",             // Travis CI
+		"AZURE_PIPELINES",    // Azure Pipelines
+		"BUDDY_WORKSPACE_ID", // Buddy
+		"TEAMCITY_VERSION",   // TeamCity
+	}
+
+	for _, envVar := range ciEnvVars {
+		if os.Getenv(envVar) != "" {
+			return true
+		}
+	}
+
+	return false
 }
