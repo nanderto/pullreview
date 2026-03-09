@@ -3,7 +3,7 @@ module pullreview
 go 1.24.5
 
 require (
-	github.com/github/copilot-sdk/go v0.1.20
+	github.com/github/copilot-sdk/go v0.1.32
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1
 )
