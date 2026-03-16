@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -118,4 +119,53 @@ func PromptYesNo(question string, defaultAnswer string) (bool, error) {
 
 	// Invalid input: treat as "no" (safer default)
 	return false, nil
+}
+
+// LoadCustomPrompt searches for a custom prompt file in the target repository directory.
+// It looks for files in the following order:
+//  1. .pullreview-custom.md
+//  2. pullreview-custom.md
+//
+// Returns the custom prompt content (without wrapping), or empty string if not found.
+// If an error occurs reading the file, it returns empty string and logs a warning.
+func LoadCustomPrompt(repoPath string, verbose bool) string {
+	candidates := []string{
+		".pullreview-custom.md",
+		"pullreview-custom.md",
+	}
+
+	for _, filename := range candidates {
+		if content := tryLoadPromptFile(repoPath, filename, verbose); content != "" {
+			return content
+		}
+	}
+
+	return ""
+}
+
+// tryLoadPromptFile attempts to load a prompt file from the given path.
+// Returns the content if successful, or empty string if the file doesn't exist or can't be read.
+func tryLoadPromptFile(repoPath, filename string, verbose bool) string {
+	fullPath := filepath.Join(repoPath, filename)
+	if _, err := os.Stat(fullPath); err != nil {
+		return ""
+	}
+
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "⚠️  Found custom prompt file %s but could not read it: %v\n", filename, err)
+		}
+		return ""
+	}
+
+	customPrompt := strings.TrimSpace(string(content))
+	if customPrompt == "" {
+		return ""
+	}
+
+	if verbose {
+		fmt.Printf("✅ Loaded custom prompt from %s (%d bytes)\n", filename, len(customPrompt))
+	}
+	return customPrompt
 }

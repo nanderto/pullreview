@@ -260,6 +260,121 @@ func TestGetLocalDiff_CustomTargetBranch(t *testing.T) {
 	}
 }
 
+func TestLoadCustomPrompt_DotfileExists(t *testing.T) {
+	dir := t.TempDir()
+	content := "Custom prompt content"
+	dotfile := filepath.Join(dir, ".pullreview-custom.md")
+	if err := os.WriteFile(dotfile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write dotfile: %v", err)
+	}
+
+	got := LoadCustomPrompt(dir, false)
+	if got != content {
+		t.Errorf("expected %q, got %q", content, got)
+	}
+}
+
+func TestLoadCustomPrompt_RegularFileExists(t *testing.T) {
+	dir := t.TempDir()
+	content := "Regular file content"
+	regularFile := filepath.Join(dir, "pullreview-custom.md")
+	if err := os.WriteFile(regularFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write regular file: %v", err)
+	}
+
+	got := LoadCustomPrompt(dir, false)
+	if got != content {
+		t.Errorf("expected %q, got %q", content, got)
+	}
+}
+
+func TestLoadCustomPrompt_DotfileTakesPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	dotContent := "Dotfile content"
+	regularContent := "Regular content"
+
+	dotfile := filepath.Join(dir, ".pullreview-custom.md")
+	if err := os.WriteFile(dotfile, []byte(dotContent), 0644); err != nil {
+		t.Fatalf("failed to write dotfile: %v", err)
+	}
+	regularFile := filepath.Join(dir, "pullreview-custom.md")
+	if err := os.WriteFile(regularFile, []byte(regularContent), 0644); err != nil {
+		t.Fatalf("failed to write regular file: %v", err)
+	}
+
+	got := LoadCustomPrompt(dir, false)
+	if got != dotContent {
+		t.Errorf("expected dotfile content %q to take precedence, got %q", dotContent, got)
+	}
+}
+
+func TestLoadCustomPrompt_EmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	dotfile := filepath.Join(dir, ".pullreview-custom.md")
+	if err := os.WriteFile(dotfile, []byte("   \n\t  \n"), 0644); err != nil {
+		t.Fatalf("failed to write dotfile: %v", err)
+	}
+
+	got := LoadCustomPrompt(dir, false)
+	if got != "" {
+		t.Errorf("expected empty string for whitespace-only file, got %q", got)
+	}
+}
+
+func TestLoadCustomPrompt_NoFilesExist(t *testing.T) {
+	dir := t.TempDir()
+
+	got := LoadCustomPrompt(dir, false)
+	if got != "" {
+		t.Errorf("expected empty string when no files exist, got %q", got)
+	}
+}
+
+func TestLoadCustomPrompt_TrimsWhitespace(t *testing.T) {
+	dir := t.TempDir()
+	content := "\n\n  Custom content with spaces  \n\n"
+	expected := "Custom content with spaces"
+	dotfile := filepath.Join(dir, ".pullreview-custom.md")
+	if err := os.WriteFile(dotfile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write dotfile: %v", err)
+	}
+
+	got := LoadCustomPrompt(dir, false)
+	if got != expected {
+		t.Errorf("expected %q, got %q", expected, got)
+	}
+}
+
+func TestLoadCustomPrompt_UnreadableFile(t *testing.T) {
+	// Skip on Windows since file permissions work differently
+	if os.Getenv("OS") == "Windows_NT" {
+		t.Skip("Skipping file permission test on Windows")
+	}
+
+	dir := t.TempDir()
+	dotfile := filepath.Join(dir, ".pullreview-custom.md")
+	regularFile := filepath.Join(dir, "pullreview-custom.md")
+	regularContent := "Fallback content"
+
+	// Create unreadable dotfile (mode 0000)
+	if err := os.WriteFile(dotfile, []byte("unreadable"), 0000); err != nil {
+		t.Fatalf("failed to write dotfile: %v", err)
+	}
+	// Create readable regular file as fallback
+	if err := os.WriteFile(regularFile, []byte(regularContent), 0644); err != nil {
+		t.Fatalf("failed to write regular file: %v", err)
+	}
+
+	got := LoadCustomPrompt(dir, false)
+	// Should fall back to regular file when dotfile is unreadable
+	if got != regularContent {
+		t.Errorf("expected fallback to regular file %q, got %q", regularContent, got)
+	}
+
+	// Clean up by making file deletable again
+	os.Chmod(dotfile, 0644)
+}
+
 // Clean up any temp dirs created by tests (optional, since t.TempDir handles it)
 func TestMain(m *testing.M) {
 	code := m.Run()

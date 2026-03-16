@@ -409,6 +409,28 @@ The tool searches for `prompt.md` in the following order (first found wins):
 3. **Executable directory** — the installation default (e.g., `C:\tools\prompt.md`)
 
 This means you can override the default prompt on a per-repo basis by dropping a `prompt.md` in your repository root, or set a global default next to the installed binary. No configuration is needed if `prompt.md` exists in either location.
+### Custom Project-Specific Instructions
+
+You can now add custom project-specific instructions that take **highest priority** over the base prompt!
+
+To add custom instructions for a specific project:
+
+1. Create a file named `.pullreview-custom.md` or `pullreview-custom.md` in your project repository root (the repo being reviewed)
+2. Add your project-specific review guidelines, coding standards, or framework-specific rules
+3. The tool will automatically detect and apply these instructions with **absolute precedence**
+
+**Example custom instructions:**
+```markdown
+1. This project uses TypeScript 2.9.2. Do not recommend syntax that is not supported in this version.
+2. Ignore the return type in method `MyMethod` at line 20 in abc.ts - this is an intentional design choice.
+```
+
+**Priority Behavior:**
+- Custom instructions override base prompt rules when there's a conflict
+- Custom instructions are clearly marked as `[CUSTOM_PROJECT_INSTRUCTIONS]` to the AI
+- The AI evaluates custom instructions first before applying base review rules
+
+**Note:** The custom prompt file should only exist in your target project repositories (the repos being reviewed), not in the pullreview tool directory.
 
 ---
 
