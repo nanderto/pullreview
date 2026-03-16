@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -347,7 +348,7 @@ func TestLoadCustomPrompt_TrimsWhitespace(t *testing.T) {
 
 func TestLoadCustomPrompt_UnreadableFile(t *testing.T) {
 	// Skip on Windows since file permissions work differently
-	if os.Getenv("OS") == "Windows_NT" {
+	if runtime.GOOS == "windows" {
 		t.Skip("Skipping file permission test on Windows")
 	}
 
