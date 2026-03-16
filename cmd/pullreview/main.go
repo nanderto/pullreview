@@ -277,14 +277,14 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load custom prompt from target repository (if it exists)
-	// Custom prompts take precedence and will be injected with special marker
+	// Custom prompts are appended at the end for highest priority (recency effect)
 	if repoPath == "" {
 		repoPath, _ = os.Getwd()
 	}
 	if repoPath != "" {
 		customPrompt := utils.LoadCustomPrompt(repoPath, verbose)
 		if customPrompt != "" {
-			promptTemplate = "## [CUSTOM_PROJECT_INSTRUCTIONS]\n\n" + customPrompt + "\n\n---\n\n" + promptTemplate
+			promptTemplate = promptTemplate + "\n\n<!-- BEGIN: CUSTOM PROJECT INSTRUCTIONS [HIGHEST PRIORITY] -->\n\n" + customPrompt + "\n\n<!-- END: CUSTOM PROJECT INSTRUCTIONS -->\n"
 			fmt.Println("✨ Custom project instructions loaded and applied with highest priority")
 		}
 	}
@@ -793,6 +793,36 @@ func getFileContentsFromDiff(repoPath string, diff string) (map[string]string, e
 	}
 
 	return contents, nil
+}
+
+// getReviewComments generates review comments using LLM.
+func getReviewComments(cfg *config.Config, llmClient *llm.Client, prID, diff string) ([]review.Comment, error) {
+	// Resolve prompt file path relative to config file location if not absolute
+	promptPath := cfg.PromptFile
+	if !filepath.IsAbs(promptPath) && cfgFile != "" {
+		cfgDir := filepath.Dir(cfgFile)
+		promptPath = filepath.Join(cfgDir, promptPath)
+	}
+
+	promptData, err := os.ReadFile(promptPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read prompt file: %w", err)
+	}
+
+	prompt := strings.ReplaceAll(string(promptData), "(DIFF_CONTENT_HERE)", diff)
+
+	response, err := llmClient.SendReviewPrompt(prompt)
+	if err != nil {
+		return nil, fmt.Errorf("LLM request failed: %w", err)
+	}
+
+	r := review.NewReview(prID, diff)
+	if err := r.ParseDiff(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to parse diff for comment mapping: %v\n", err)
+	}
+	r.ParseLLMResponse(response)
+
+	return r.Comments, nil
 }
 
 // convertBitbucketCommentsToReviewComments converts Bitbucket API comments to review.Comment format.
