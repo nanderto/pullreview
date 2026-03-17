@@ -139,11 +139,11 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 	var diff string
 	var finalPRID string
 	var bbClient *bitbucket.Client
+	var repoPath string
 
 	if localReview {
 		// Local branch review: get diff from git, skip Bitbucket entirely
 		// Optional positional arg specifies the repo path (defaults to cwd)
-		var repoPath string
 		if len(args) > 0 {
 			repoPath, err = filepath.Abs(args[0])
 			if err != nil {
@@ -201,7 +201,7 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 		// Determine PR ID: use CLI flag if provided, else infer from git branch
 		finalPRID = prID
 		if finalPRID == "" {
-			repoPath, err := os.Getwd()
+			repoPath, err = os.Getwd()
 			if err != nil {
 				return fmt.Errorf("could not determine working directory: %w", err)
 			}
@@ -274,6 +274,19 @@ func runPullReview(cmd *cobra.Command, args []string) error {
 	// Validate prompt is not empty
 	if strings.TrimSpace(promptTemplate) == "" {
 		return fmt.Errorf("prompt file %q is empty - cannot proceed without a valid prompt template", promptPath)
+	}
+
+	// Load custom prompt from target repository (if it exists)
+	// Custom prompts are appended at the end for highest priority (recency effect)
+	if repoPath == "" {
+		repoPath, _ = os.Getwd()
+	}
+	if repoPath != "" {
+		customPrompt := utils.LoadCustomPrompt(repoPath, verbose)
+		if customPrompt != "" {
+			promptTemplate = promptTemplate + "\n\n<!-- BEGIN: CUSTOM PROJECT INSTRUCTIONS [HIGHEST PRIORITY] -->\n\n" + customPrompt + "\n\n<!-- END: CUSTOM PROJECT INSTRUCTIONS -->\n"
+			fmt.Println("✨ Custom project instructions loaded and applied with highest priority")
+		}
 	}
 
 	// Inject diff into prompt
