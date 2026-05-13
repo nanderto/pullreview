@@ -168,9 +168,9 @@ All required configuration fields must be set by one of these methods, or the to
 The following environment variables are supported and override values from the config file:
 
 - `BITBUCKET_API_TOKEN` – Bitbucket API token
-- `LLM_PROVIDER` – LLM provider (e.g., openai, openrouter, copilot)
-- `LLM_API_KEY` – LLM API key (not required for copilot provider)
-- `LLM_ENDPOINT` – LLM API endpoint (not required for copilot provider)
+- `LLM_PROVIDER` – LLM provider (e.g., openai, openrouter, copilot, claude-code)
+- `LLM_API_KEY` – LLM API key (not required for copilot or claude-code providers)
+- `LLM_ENDPOINT` – LLM API endpoint (not required for copilot or claude-code providers)
 - `LLM_MODEL` – LLM model name
 - `PULLREVIEW_PROMPT_FILE` – Path to the prompt file
 
@@ -488,6 +488,7 @@ The tool supports multiple LLM providers:
 - **OpenAI** - Direct OpenAI API
 - **OpenRouter** - Access to multiple models via OpenRouter
 - **Copilot** - GitHub Copilot via the Copilot SDK (requires Copilot CLI)
+- **Claude Code** - Anthropic Claude via the locally installed Claude Code CLI
 
 ---
 
@@ -528,6 +529,33 @@ llm:
 - The Copilot SDK is currently in **Technical Preview** and may not be suitable for production use
 - Billing follows your Copilot subscription (free tier has limited usage)
 - Premium request quotas apply based on your subscription level
+
+---
+
+### Claude Code CLI Integration
+
+The tool supports Anthropic Claude as an LLM provider by piping the review prompt through the locally installed [Claude Code CLI](https://docs.anthropic.com/claude-code). This lets you use your existing Claude subscription (Pro, Team, or Enterprise) for code reviews without an API key.
+
+#### Prerequisites for Claude Code
+
+1. **Claude subscription or API access** - Any plan that authenticates `claude` works (claude.ai login or `ANTHROPIC_API_KEY`).
+2. **Claude Code CLI** - Install from https://docs.anthropic.com/claude-code and ensure `claude` is on your `PATH`.
+3. **Authentication** - Run `claude auth login` and confirm with `claude auth status`.
+
+#### Claude Code Configuration
+
+```yaml
+llm:
+  provider: claude-code
+  model: sonnet           # Optional, defaults to "sonnet". Accepts aliases (sonnet, opus) or model IDs (e.g. claude-sonnet-4-6)
+```
+
+**Note:** No API key is required when using `claude-code` — authentication is handled by the Claude Code CLI. The prompt is piped via stdin so large diffs are not subject to `ARG_MAX` limits.
+
+#### Environment Variables for Claude Code
+
+- `LLM_PROVIDER=claude-code` - Set provider to Claude Code
+- `LLM_MODEL` - Override the model (alias or full model ID)
 
 ---
 

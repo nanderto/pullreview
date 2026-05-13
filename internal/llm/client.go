@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"pullreview/internal/claudecode"
 	"pullreview/internal/copilot"
 	"strings"
 )
@@ -62,6 +63,8 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 		return c.sendOpenAI(prompt)
 	case "copilot":
 		return c.sendCopilot(prompt)
+	case "claude-code", "claudecode":
+		return c.sendClaudeCode(prompt)
 	default:
 		return "", fmt.Errorf("unsupported LLM provider: %s", c.Provider)
 	}
@@ -81,6 +84,20 @@ func (c *Client) sendCopilot(prompt string) (string, error) {
 	}
 
 	return copilotClient.SendReviewPrompt(prompt)
+}
+
+// sendClaudeCode sends the prompt to the local Claude Code CLI and returns the response.
+func (c *Client) sendClaudeCode(prompt string) (string, error) {
+	claudecode.SetVerbose(verboseMode)
+
+	ccClient := claudecode.NewClient(c.Model)
+
+	if verboseMode {
+		fmt.Fprintf(os.Stderr, "[llm] Provider: %s\n", c.Provider)
+		fmt.Fprintf(os.Stderr, "[llm] Model: %s\n", c.Model)
+	}
+
+	return ccClient.SendReviewPrompt(prompt)
 }
 
 // sendOpenAI sends the prompt to OpenAI's Chat API and returns the response.

@@ -156,6 +156,13 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string, skipBitb
 		}
 	}
 
+	// 5a. Set defaults for Claude Code provider
+	if p := strings.ToLower(cfg.LLM.Provider); p == "claude-code" || p == "claudecode" {
+		if strings.TrimSpace(cfg.LLM.Model) == "" {
+			cfg.LLM.Model = "sonnet" // Default alias for Claude Code
+		}
+	}
+
 	// 5b. Resolve prompt file with search precedence:
 	//   1. Explicit path from config/env (absolute = as-is, relative = resolve against config dir)
 	//   2. prompt.md in current working directory (repo-specific override)
@@ -181,8 +188,8 @@ func LoadConfigWithOverrides(cfgFile, email, apiToken, repoSlug string, skipBitb
 	if strings.TrimSpace(cfg.LLM.Provider) == "" {
 		missing = append(missing, "llm.provider")
 	}
-	// API key is only required for non-Copilot providers
-	if strings.ToLower(cfg.LLM.Provider) != "copilot" && strings.TrimSpace(cfg.LLM.APIKey) == "" {
+	// API key is only required for hosted-API providers (not for local CLI providers).
+	if p := strings.ToLower(cfg.LLM.Provider); p != "copilot" && p != "claude-code" && p != "claudecode" && strings.TrimSpace(cfg.LLM.APIKey) == "" {
 		missing = append(missing, "llm.api_key")
 	}
 

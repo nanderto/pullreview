@@ -10,4 +10,10 @@ llm:
   api_key: your_openai_api_key
   endpoint: https://api.openai.com/v1/chat/completions
 
+# Example: use the local Claude Code CLI instead of a hosted API.
+# No api_key/endpoint is required — auth is handled by `claude auth login`.
+# llm:
+#   provider: claude-code
+#   model: sonnet           # Optional. Accepts aliases (sonnet, opus) or full model IDs.
+
 prompt_file: prompt.md
