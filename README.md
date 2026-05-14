@@ -540,7 +540,7 @@ The tool supports Anthropic Claude as an LLM provider by piping the review promp
 
 1. **Claude subscription or API access** - Any plan that authenticates `claude` works (claude.ai login or `ANTHROPIC_API_KEY`).
 2. **Claude Code CLI** - Install from https://docs.anthropic.com/claude-code and ensure `claude` is on your `PATH`.
-3. **Authentication** - Run `claude auth login` and confirm with `claude auth status`.
+3. **Authentication** - Authenticate via either `claude auth login` (claude.ai OAuth) *or* `export ANTHROPIC_API_KEY=...`, then confirm with `claude auth status`.
 
 #### Claude Code Configuration
 
@@ -550,7 +550,7 @@ llm:
   model: sonnet           # Optional, defaults to "sonnet". Accepts aliases (sonnet, opus) or model IDs (e.g. claude-sonnet-4-6)
 ```
 
-**Note:** No API key is required when using `claude-code` — authentication is handled by the Claude Code CLI. The prompt is piped via stdin so large diffs are not subject to `ARG_MAX` limits.
+**Note:** No `llm.api_key` config is required — `claude` handles its own auth (claude.ai subscription or `ANTHROPIC_API_KEY`). The prompt is piped via stdin so large diffs are not subject to `ARG_MAX` limits.
 
 #### Environment Variables for Claude Code
 
