@@ -136,8 +136,10 @@ func TestCheckCLIAvailable_AuthTimeout(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("expected auth timeout error, got: %v", err)
 	}
-	if elapsed > 500*time.Millisecond {
-		t.Errorf("auth check did not respect timeout, elapsed=%v", elapsed)
+	// Probe was bounded to 30ms. Allow ~3x slack for scheduling jitter but no more,
+	// so a regression that loosens the cap to e.g. 500ms or 10s would fail this test.
+	if elapsed > 100*time.Millisecond {
+		t.Errorf("auth check did not respect Timeout bound, elapsed=%v (want <100ms)", elapsed)
 	}
 }
 
@@ -282,13 +284,13 @@ func TestSendReviewPrompt_AuthFailureSurfaces(t *testing.T) {
 	}
 }
 
-func TestSetVerbose(t *testing.T) {
-	SetVerbose(true)
-	if !verbose() {
-		t.Error("SetVerbose(true) should make verbose() return true")
+func TestVerboseField(t *testing.T) {
+	c := NewClient("")
+	if c.Verbose {
+		t.Error("NewClient should default Verbose to false")
 	}
-	SetVerbose(false)
-	if verbose() {
-		t.Error("SetVerbose(false) should make verbose() return false")
+	c.Verbose = true
+	if !c.Verbose {
+		t.Error("Verbose field should be writable")
 	}
 }

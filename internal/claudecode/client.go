@@ -12,16 +12,8 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
-
-// verboseMode is set by SetVerbose. atomic.Bool makes concurrent reads/writes safe
-// even though pullreview is normally single-shot — `go test -race` will flag any
-// concurrent access otherwise.
-var verboseMode atomic.Bool
-
-func verbose() bool { return verboseMode.Load() }
 
 // runFunc executes an external command with the given stdin and returns its
 // stdout, stderr, and run error. Injected for testability.
@@ -31,6 +23,7 @@ type runFunc func(ctx context.Context, stdin []byte, name string, args ...string
 type Client struct {
 	Model   string        // Model name or alias (e.g., "sonnet", "opus", "claude-sonnet-4-6")
 	Timeout time.Duration // Timeout for a single CLI invocation
+	Verbose bool          // When true, emit debug logs to stderr
 
 	// lookPath resolves the claude binary on PATH. Defaults to exec.LookPath.
 	lookPath func(string) (string, error)
@@ -144,7 +137,7 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 		return "", err
 	}
 
-	if verbose() {
+	if c.Verbose {
 		fmt.Fprintf(os.Stderr, "[claudecode] Model: %s\n", c.Model)
 		fmt.Fprintf(os.Stderr, "[claudecode] Timeout: %v\n", c.Timeout)
 	}
@@ -152,7 +145,7 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
 	defer cancel()
 
-	if verbose() {
+	if c.Verbose {
 		fmt.Fprintln(os.Stderr, "[claudecode] Invoking claude -p ...")
 	}
 
@@ -175,13 +168,8 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 		return "", errors.New("empty response received from claude CLI")
 	}
 
-	if verbose() {
+	if c.Verbose {
 		fmt.Fprintln(os.Stderr, "[claudecode] Response received successfully")
 	}
 	return out, nil
-}
-
-// SetVerbose enables or disables verbose mode for Claude Code debug output.
-func SetVerbose(v bool) {
-	verboseMode.Store(v)
 }

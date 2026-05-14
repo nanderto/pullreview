@@ -88,9 +88,8 @@ func (c *Client) sendCopilot(prompt string) (string, error) {
 
 // sendClaudeCode sends the prompt to the local Claude Code CLI and returns the response.
 func (c *Client) sendClaudeCode(prompt string) (string, error) {
-	claudecode.SetVerbose(verboseMode)
-
 	ccClient := claudecode.NewClient(c.Model)
+	ccClient.Verbose = verboseMode
 
 	if verboseMode {
 		fmt.Fprintf(os.Stderr, "[llm] Provider: %s\n", c.Provider)
