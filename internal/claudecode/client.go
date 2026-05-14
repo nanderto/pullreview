@@ -11,15 +11,28 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
 var verboseMode bool
 
+// runFunc executes an external command with the given stdin and returns its
+// stdout, stderr, and run error. Injected for testability.
+type runFunc func(ctx context.Context, stdin []byte, name string, args ...string) (stdout, stderr []byte, err error)
+
 // Client invokes the Claude Code CLI to generate review responses.
 type Client struct {
 	Model   string        // Model name or alias (e.g., "sonnet", "opus", "claude-sonnet-4-6")
 	Timeout time.Duration // Timeout for a single CLI invocation
+
+	// lookPath resolves the claude binary on PATH. Defaults to exec.LookPath.
+	lookPath func(string) (string, error)
+	// run executes a subprocess. Defaults to a real os/exec invocation.
+	run runFunc
+
+	checkOnce sync.Once
+	checkErr  error
 }
 
 // NewClient creates a new Claude Code CLI client. An empty model defaults to "sonnet".
@@ -28,36 +41,53 @@ func NewClient(model string) *Client {
 		model = "sonnet"
 	}
 	return &Client{
-		Model:   model,
-		Timeout: 5 * time.Minute,
+		Model:    model,
+		Timeout:  5 * time.Minute,
+		lookPath: exec.LookPath,
+		run:      defaultRun,
 	}
 }
 
-// CheckCLIAvailable verifies that the Claude Code CLI is installed and the user is logged in.
-func CheckCLIAvailable() error {
-	if _, err := exec.LookPath("claude"); err != nil {
+// defaultRun is the production implementation of runFunc.
+func defaultRun(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.Bytes(), stderr.Bytes(), err
+}
+
+// checkCLIAvailable verifies that the Claude Code CLI is installed and the user is logged in.
+func (c *Client) checkCLIAvailable() error {
+	if _, err := c.lookPath("claude"); err != nil {
 		return errors.New("Claude Code CLI not found. Install from https://docs.anthropic.com/claude-code and ensure 'claude' is in your PATH")
 	}
-	return checkAuth()
+	return c.checkAuth()
 }
 
 // checkAuth runs `claude auth status --json` and confirms the user is logged in.
 // The Claude Code CLI ships a first-party auth-status command, so we avoid the
 // "send a hello prompt" probe used by the Copilot integration.
-func checkAuth() error {
-	cmd := exec.Command("claude", "auth", "status", "--json")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("claude auth status failed: %s: %w", strings.TrimSpace(stderr.String()), err)
+func (c *Client) checkAuth() error {
+	stdout, stderr, err := c.run(context.Background(), nil, "claude", "auth", "status", "--json")
+	if err != nil {
+		return fmt.Errorf("claude auth status failed: %s: %w", strings.TrimSpace(string(stderr)), err)
 	}
+	return parseAuthStatus(stdout)
+}
 
+// parseAuthStatus parses the JSON payload emitted by `claude auth status --json`
+// and returns nil iff the user is logged in. Extracted for testability.
+func parseAuthStatus(payload []byte) error {
 	// Only parse loggedIn; ignore the rest so future schema additions don't break us.
 	var status struct {
 		LoggedIn bool `json:"loggedIn"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
+	if err := json.Unmarshal(payload, &status); err != nil {
 		return fmt.Errorf("could not parse claude auth status output: %w", err)
 	}
 	if !status.LoggedIn {
@@ -66,9 +96,25 @@ func checkAuth() error {
 	return nil
 }
 
+// CheckCLIAvailable verifies that the Claude Code CLI is installed and the user is logged in,
+// using the default exec implementation. Provided for callers that want to probe availability
+// without constructing a Client.
+func CheckCLIAvailable() error {
+	return NewClient("").checkCLIAvailable()
+}
+
+// ensureCLIAvailable runs the availability check once per Client and caches the result,
+// so repeated SendReviewPrompt calls don't spawn an auth-status subprocess each time.
+func (c *Client) ensureCLIAvailable() error {
+	c.checkOnce.Do(func() {
+		c.checkErr = c.checkCLIAvailable()
+	})
+	return c.checkErr
+}
+
 // SendReviewPrompt sends the review prompt to Claude Code via stdin and returns stdout.
 func (c *Client) SendReviewPrompt(prompt string) (string, error) {
-	if err := CheckCLIAvailable(); err != nil {
+	if err := c.ensureCLIAvailable(); err != nil {
 		return "", err
 	}
 
@@ -80,26 +126,21 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
 	defer cancel()
 
-	// `--tools ""` disables all tools so the run is a pure text completion — faster,
-	// predictable, and won't touch the working directory.
-	cmd := exec.CommandContext(ctx, "claude", "-p", "--model", c.Model, "--tools", "")
-	cmd.Stdin = strings.NewReader(prompt)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
 	if verboseMode {
 		fmt.Fprintln(os.Stderr, "[claudecode] Invoking claude -p ...")
 	}
 
-	if err := cmd.Run(); err != nil {
+	// `--tools ""` disables all tools so the run is a pure text completion — faster,
+	// predictable, and won't touch the working directory.
+	stdout, stderr, err := c.run(ctx, []byte(prompt), "claude", "-p", "--model", c.Model, "--tools", "")
+	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("claude CLI timed out after %v", c.Timeout)
 		}
-		return "", fmt.Errorf("claude CLI failed: %s: %w", strings.TrimSpace(stderr.String()), err)
+		return "", fmt.Errorf("claude CLI failed: %s: %w", strings.TrimSpace(string(stderr)), err)
 	}
 
-	out := strings.TrimSpace(stdout.String())
+	out := strings.TrimSpace(string(stdout))
 	if out == "" {
 		return "", errors.New("empty response received from Claude Code CLI")
 	}
