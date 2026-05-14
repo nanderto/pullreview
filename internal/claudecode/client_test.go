@@ -222,6 +222,32 @@ func TestSendReviewPrompt_Timeout(t *testing.T) {
 	}
 }
 
+func TestSendReviewPrompt_TimeoutIncludesStderr(t *testing.T) {
+	c := newTestClient(func(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, []byte, error) {
+		if len(args) > 0 && args[0] == "auth" {
+			return []byte(`{"loggedIn": true}`), nil, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, []byte("partial output before kill\n"), ctx.Err()
+		case <-time.After(5 * time.Second):
+			return []byte("late"), nil, nil
+		}
+	})
+	c.Timeout = 20 * time.Millisecond
+
+	_, err := c.SendReviewPrompt("hi")
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("error = %q, want 'timed out'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "partial output before kill") {
+		t.Errorf("timeout error should surface stderr; got %q", err.Error())
+	}
+}
+
 func TestSendReviewPrompt_AuthFailureSurfaces(t *testing.T) {
 	c := newTestClient(fakeRun(
 		[]byte(`{"loggedIn": false}`), nil, nil,
@@ -235,12 +261,12 @@ func TestSendReviewPrompt_AuthFailureSurfaces(t *testing.T) {
 
 func TestSetVerbose(t *testing.T) {
 	SetVerbose(true)
-	if !verboseMode {
-		t.Error("SetVerbose(true) should set verboseMode to true")
+	if !verbose() {
+		t.Error("SetVerbose(true) should make verbose() return true")
 	}
 	SetVerbose(false)
-	if verboseMode {
-		t.Error("SetVerbose(false) should set verboseMode to false")
+	if verbose() {
+		t.Error("SetVerbose(false) should make verbose() return false")
 	}
 }
 

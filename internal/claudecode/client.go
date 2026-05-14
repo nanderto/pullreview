@@ -12,10 +12,16 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-var verboseMode bool
+// verboseMode is set by SetVerbose. atomic.Bool makes concurrent reads/writes safe
+// even though pullreview is normally single-shot — `go test -race` will flag any
+// concurrent access otherwise.
+var verboseMode atomic.Bool
+
+func verbose() bool { return verboseMode.Load() }
 
 // runFunc executes an external command with the given stdin and returns its
 // stdout, stderr, and run error. Injected for testability.
@@ -118,7 +124,7 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 		return "", err
 	}
 
-	if verboseMode {
+	if verbose() {
 		fmt.Fprintf(os.Stderr, "[claudecode] Model: %s\n", c.Model)
 		fmt.Fprintf(os.Stderr, "[claudecode] Timeout: %v\n", c.Timeout)
 	}
@@ -126,7 +132,7 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
 	defer cancel()
 
-	if verboseMode {
+	if verbose() {
 		fmt.Fprintln(os.Stderr, "[claudecode] Invoking claude -p ...")
 	}
 
@@ -134,10 +140,14 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 	// predictable, and won't touch the working directory.
 	stdout, stderr, err := c.run(ctx, []byte(prompt), "claude", "-p", "--model", c.Model, "--tools", "")
 	if err != nil {
+		stderrTrimmed := strings.TrimSpace(string(stderr))
 		if ctx.Err() == context.DeadlineExceeded {
+			if stderrTrimmed != "" {
+				return "", fmt.Errorf("claude CLI timed out after %v: %s", c.Timeout, stderrTrimmed)
+			}
 			return "", fmt.Errorf("claude CLI timed out after %v", c.Timeout)
 		}
-		return "", fmt.Errorf("claude CLI failed: %s: %w", strings.TrimSpace(string(stderr)), err)
+		return "", fmt.Errorf("claude CLI failed: %s: %w", stderrTrimmed, err)
 	}
 
 	out := strings.TrimSpace(string(stdout))
@@ -145,7 +155,7 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 		return "", errors.New("empty response received from Claude Code CLI")
 	}
 
-	if verboseMode {
+	if verbose() {
 		fmt.Fprintln(os.Stderr, "[claudecode] Response received successfully")
 	}
 	return out, nil
@@ -153,5 +163,5 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 
 // SetVerbose enables or disables verbose mode for Claude Code debug output.
 func SetVerbose(v bool) {
-	verboseMode = v
+	verboseMode.Store(v)
 }
