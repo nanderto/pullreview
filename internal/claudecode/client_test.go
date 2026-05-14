@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -190,7 +191,7 @@ func TestSendReviewPrompt_HappyPath(t *testing.T) {
 		t.Errorf("stdin sent to claude = %q, want %q", string(sentStdin), "please review this diff")
 	}
 	wantArgs := []string{"-p", "--model", "sonnet", "--tools", ""}
-	if !equalStrings(sentArgs, wantArgs) {
+	if !slices.Equal(sentArgs, wantArgs) {
 		t.Errorf("args = %v, want %v", sentArgs, wantArgs)
 	}
 }
@@ -290,16 +291,4 @@ func TestSetVerbose(t *testing.T) {
 	if verbose() {
 		t.Error("SetVerbose(false) should make verbose() return false")
 	}
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
