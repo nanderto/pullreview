@@ -67,20 +67,40 @@ func defaultRun(ctx context.Context, stdin []byte, name string, args ...string) 
 	return stdout.Bytes(), stderr.Bytes(), err
 }
 
+// defaultAuthProbeTimeout caps the `claude auth status` subprocess so a stuck
+// credential refresh (e.g. network I/O) can't hang the whole review.
+const defaultAuthProbeTimeout = 10 * time.Second
+
 // checkCLIAvailable verifies that the Claude Code CLI is installed and the user is logged in.
 func (c *Client) checkCLIAvailable() error {
 	if _, err := c.lookPath("claude"); err != nil {
-		return errors.New("Claude Code CLI not found. Install from https://docs.anthropic.com/claude-code and ensure 'claude' is in your PATH")
+		return errors.New("claude CLI not found, install from https://docs.anthropic.com/claude-code and ensure 'claude' is in your PATH")
 	}
 	return c.checkAuth()
+}
+
+// authProbeTimeout returns the smaller of the client's overall Timeout and the
+// default auth-probe ceiling, so the probe is always bounded.
+func (c *Client) authProbeTimeout() time.Duration {
+	if c.Timeout > 0 && c.Timeout < defaultAuthProbeTimeout {
+		return c.Timeout
+	}
+	return defaultAuthProbeTimeout
 }
 
 // checkAuth runs `claude auth status --json` and confirms the user is logged in.
 // The Claude Code CLI ships a first-party auth-status command, so we avoid the
 // "send a hello prompt" probe used by the Copilot integration.
 func (c *Client) checkAuth() error {
-	stdout, stderr, err := c.run(context.Background(), nil, "claude", "auth", "status", "--json")
+	timeout := c.authProbeTimeout()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	stdout, stderr, err := c.run(ctx, nil, "claude", "auth", "status", "--json")
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("claude auth status timed out after %v", timeout)
+		}
 		return fmt.Errorf("claude auth status failed: %s: %w", strings.TrimSpace(string(stderr)), err)
 	}
 	return parseAuthStatus(stdout)
@@ -97,7 +117,7 @@ func parseAuthStatus(payload []byte) error {
 		return fmt.Errorf("could not parse claude auth status output: %w", err)
 	}
 	if !status.LoggedIn {
-		return errors.New("Claude Code CLI is not authenticated. Run 'claude auth login' to sign in")
+		return errors.New("claude CLI is not authenticated, run 'claude auth login' to sign in")
 	}
 	return nil
 }
@@ -152,7 +172,7 @@ func (c *Client) SendReviewPrompt(prompt string) (string, error) {
 
 	out := strings.TrimSpace(string(stdout))
 	if out == "" {
-		return "", errors.New("empty response received from Claude Code CLI")
+		return "", errors.New("empty response received from claude CLI")
 	}
 
 	if verbose() {

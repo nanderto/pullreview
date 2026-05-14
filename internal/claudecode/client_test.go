@@ -118,6 +118,28 @@ func TestCheckCLIAvailable_LoggedOut(t *testing.T) {
 	}
 }
 
+func TestCheckCLIAvailable_AuthTimeout(t *testing.T) {
+	c := NewClient("")
+	c.lookPath = func(string) (string, error) { return "/usr/bin/claude", nil }
+	c.run = func(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, []byte, error) {
+		<-ctx.Done()
+		return nil, nil, ctx.Err()
+	}
+	// Force the auth probe to bound to 30ms via the overall Timeout.
+	c.Timeout = 30 * time.Millisecond
+
+	start := time.Now()
+	err := c.checkAuth()
+	elapsed := time.Since(start)
+
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("expected auth timeout error, got: %v", err)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("auth check did not respect timeout, elapsed=%v", elapsed)
+	}
+}
+
 func TestCheckCLIAvailable_OK(t *testing.T) {
 	c := newTestClient(fakeRun([]byte(`{"loggedIn": true}`), nil, nil, nil, nil, nil))
 	if err := c.checkCLIAvailable(); err != nil {
